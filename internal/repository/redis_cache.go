@@ -1,0 +1,80 @@
+package repository
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/mansoorceksport/metamorph/internal/domain"
+	"github.com/redis/go-redis/v9"
+)
+
+const (
+	latestScanKeyPrefix = "user:latest_scan:"
+)
+
+// RedisCacheRepository implements domain.CacheRepository using Redis
+type RedisCacheRepository struct {
+	client *redis.Client
+}
+
+// NewRedisCacheRepository creates a new Redis cache repository
+func NewRedisCacheRepository(client *redis.Client) *RedisCacheRepository {
+	return &RedisCacheRepository{
+		client: client,
+	}
+}
+
+// SetLatestScan caches the latest scan for a user with TTL
+func (r *RedisCacheRepository) SetLatestScan(ctx context.Context, userID string, record *domain.InBodyRecord, ttl time.Duration) error {
+	key := latestScanKeyPrefix + userID
+
+	// Serialize record to JSON
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("failed to marshal record: %w", err)
+	}
+
+	// Set with TTL
+	err = r.client.Set(ctx, key, data, ttl).Err()
+	if err != nil {
+		return fmt.Errorf("failed to cache latest scan: %w", err)
+	}
+
+	return nil
+}
+
+// GetLatestScan retrieves the cached latest scan for a user
+func (r *RedisCacheRepository) GetLatestScan(ctx context.Context, userID string) (*domain.InBodyRecord, error) {
+	key := latestScanKeyPrefix + userID
+
+	// Get from Redis
+	data, err := r.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, nil // Cache miss, return nil
+		}
+		return nil, fmt.Errorf("failed to get cached scan: %w", err)
+	}
+
+	// Deserialize JSON
+	var record domain.InBodyRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cached record: %w", err)
+	}
+
+	return &record, nil
+}
+
+// InvalidateUserCache removes cached data for a user
+func (r *RedisCacheRepository) InvalidateUserCache(ctx context.Context, userID string) error {
+	key := latestScanKeyPrefix + userID
+
+	err := r.client.Del(ctx, key).Err()
+	if err != nil {
+		return fmt.Errorf("failed to invalidate cache: %w", err)
+	}
+
+	return nil
+}
