@@ -186,4 +186,4 @@ Dependencies flow inward: Handlers → Services → Repositories → Domain
 
 ## License
 
-Copyright © 2025 HOM Gym
+Copyright © 2025 mansoorceksport
