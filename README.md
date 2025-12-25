@@ -6,6 +6,9 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
 
 - 🔐 **Firebase Authentication**: Secure JWT-based user authentication
 - 🤖 **AI-Powered Extraction**: Automatic metric extraction from InBody scans using Gemini 2.0 Flash
+- 📊 **Segmental Analysis (V2)**: Detailed body composition for 5 body segments (arms, legs, trunk)
+- 💬 **Personalized Feedback (V2)**: AI-generated analysis from House of Metamorfit personal trainer
+- 📈 **Trend Analysis (V2)**: Compares with previous scan to track progress
 - 💾 **MongoDB Storage**: Persistent storage of scan records
 - 📦 **SeaweedFS S3 Storage**: Distributed object storage for scan images
 - ⚡ **Redis Caching**: 24-hour caching of latest scans for fast dashboard loading
@@ -163,6 +166,34 @@ Content-Type: multipart/form-data
     "bmr": 1650,
     "visceral_fat": 8,
     "whr": 0.85,
+    "segmental_lean": {
+      "right_arm": {"mass": 2.8, "percentage": 8.0},
+      "left_arm": {"mass": 2.7, "percentage": 7.8},
+      "trunk": {"mass": 22.5, "percentage": 63.9},
+      "right_leg": {"mass": 8.1, "percentage": 23.0},
+      "left_leg": {"mass": 8.2, "percentage": 23.3}
+    },
+    "segmental_fat": {
+      "right_arm": {"mass": 0.6, "percentage": 4.7},
+      "left_arm": {"mass": 0.6, "percentage": 4.7},
+      "trunk": {"mass": 7.2, "percentage": 56.3},
+      "right_leg": {"mass": 2.2, "percentage": 17.2},
+      "left_leg": {"mass": 2.2, "percentage": 17.2}
+    },
+    "analysis": {
+      "summary": "Your body composition shows good muscle mass with healthy visceral fat levels.",
+      "positive_feedback": [
+        "Excellent visceral fat level of 8",
+        "Strong skeletal muscle mass at 35.2kg"
+      ],
+      "improvements": [
+        "Body fat percentage could be reduced for enhanced definition"
+      ],
+      "advice": [
+        "Maintain current strength training routine",
+        "Add 2-3 HIIT sessions per week"
+      ]
+    },
     "metadata": {
       "image_url": "http://127.0.0.1:8333/inbody-scans/user123/1234567890.jpg",
       "processed_at": "2025-12-24T17:30:00Z"
@@ -170,6 +201,8 @@ Content-Type: multipart/form-data
   }
 }
 ```
+
+**Note**: V2 fields (`segmental_lean`, `segmental_fat`, `analysis`) are optional and only included when visible in the scan.
 
 ### List All Scans
 ```
