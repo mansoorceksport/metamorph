@@ -23,14 +23,45 @@ type InBodyRecord struct {
 	VisceralFatLevel int     `bson:"visceral_fat" json:"visceral_fat"`
 	WaistHipRatio    float64 `bson:"whr" json:"whr"`
 
+	// Segmental Body Composition (V2) - Optional for backward compatibility
+	SegmentalLean *SegmentalData `bson:"segmental_lean,omitempty" json:"segmental_lean,omitempty"`
+	SegmentalFat  *SegmentalData `bson:"segmental_fat,omitempty" json:"segmental_fat,omitempty"`
+
+	// AI-Generated Analysis (V2) - Optional for backward compatibility
+	Analysis *BodyAnalysis `bson:"analysis,omitempty" json:"analysis,omitempty"`
+
 	Metadata struct {
 		ImageURL    string    `bson:"image_url" json:"image_url"`
 		ProcessedAt time.Time `bson:"processed_at" json:"processed_at"`
 	} `bson:"metadata" json:"metadata"`
 }
 
+// SegmentalData represents body composition for different body segments
+type SegmentalData struct {
+	RightArm SegmentMetrics `bson:"right_arm" json:"right_arm"`
+	LeftArm  SegmentMetrics `bson:"left_arm" json:"left_arm"`
+	Trunk    SegmentMetrics `bson:"trunk" json:"trunk"`
+	RightLeg SegmentMetrics `bson:"right_leg" json:"right_leg"`
+	LeftLeg  SegmentMetrics `bson:"left_leg" json:"left_leg"`
+}
+
+// SegmentMetrics represents mass and percentage for a body segment
+type SegmentMetrics struct {
+	Mass       float64 `bson:"mass" json:"mass"`             // in kg
+	Percentage float64 `bson:"percentage" json:"percentage"` // relative to total
+}
+
+// BodyAnalysis represents AI-generated analysis and feedback
+type BodyAnalysis struct {
+	Summary          string   `bson:"summary" json:"summary"`
+	PositiveFeedback []string `bson:"positive_feedback" json:"positive_feedback"`
+	Improvements     []string `bson:"improvements" json:"improvements"`
+	Advice           []string `bson:"advice" json:"advice"`
+}
+
 // InBodyMetrics represents the raw metrics extracted from AI
 type InBodyMetrics struct {
+	// V1 Fields (Always present)
 	Weight           float64   `json:"weight"`
 	SMM              float64   `json:"smm"`
 	BodyFatMass      float64   `json:"body_fat_mass"`
@@ -40,6 +71,11 @@ type InBodyMetrics struct {
 	VisceralFatLevel int       `json:"visceral_fat"`
 	WaistHipRatio    float64   `json:"whr"`
 	TestDate         time.Time `json:"test_date"`
+
+	// V2 Fields (Optional for backward compatibility)
+	SegmentalLean *SegmentalData `json:"segmental_lean,omitempty"`
+	SegmentalFat  *SegmentalData `json:"segmental_fat,omitempty"`
+	Analysis      *BodyAnalysis  `json:"analysis,omitempty"`
 }
 
 // InBodyRepository defines the interface for InBodyRecord persistence
@@ -85,7 +121,8 @@ type CacheRepository interface {
 // Implementations should handle OpenRouter API communication
 type DigitizerService interface {
 	// ExtractMetrics uses AI to extract InBody metrics from an image
-	ExtractMetrics(ctx context.Context, imageData []byte) (*InBodyMetrics, error)
+	// previousRecord is optional - if provided, it will be used for trend analysis
+	ExtractMetrics(ctx context.Context, imageData []byte, previousRecord *InBodyRecord) (*InBodyMetrics, error)
 }
 
 // ScanService defines the interface for business logic around scan processing

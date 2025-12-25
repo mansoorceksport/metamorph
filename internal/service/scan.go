@@ -56,13 +56,21 @@ func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageD
 		imageURL = uploadedURL // Use the permanent URL
 	}
 
-	// Step 1: Extract metrics using AI
-	metrics, err := s.digitizer.ExtractMetrics(ctx, imageData)
+	// Step 0.5: Fetch previous scan for trend analysis (V2 feature)
+	previousScan, err := s.repository.GetLatestByUserID(ctx, userID)
+	if err != nil {
+		// Log but don't fail - previous scan is optional
+		fmt.Printf("Warning: failed to fetch previous scan for trend analysis: %v\n", err)
+		previousScan = nil
+	}
+
+	// Step 1: Extract metrics using AI (with previous scan context for V2)
+	metrics, err := s.digitizer.ExtractMetrics(ctx, imageData, previousScan)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract metrics: %w", err)
 	}
 
-	// Step 2: Build InBodyRecord
+	// Step 2: Build InBodyRecord with V1 fields
 	record := &domain.InBodyRecord{
 		UserID:           userID,
 		TestDateTime:     metrics.TestDate,
@@ -75,6 +83,18 @@ func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageD
 		VisceralFatLevel: metrics.VisceralFatLevel,
 		WaistHipRatio:    metrics.WaistHipRatio,
 	}
+
+	// Step 2.5: Map V2 fields if present (backward compatible)
+	if metrics.SegmentalLean != nil {
+		record.SegmentalLean = metrics.SegmentalLean
+	}
+	if metrics.SegmentalFat != nil {
+		record.SegmentalFat = metrics.SegmentalFat
+	}
+	if metrics.Analysis != nil {
+		record.Analysis = metrics.Analysis
+	}
+
 	record.Metadata.ImageURL = imageURL
 	record.Metadata.ProcessedAt = time.Now()
 

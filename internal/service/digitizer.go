@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
@@ -15,9 +16,27 @@ import (
 
 const (
 	openRouterAPIURL = "https://openrouter.ai/api/v1/chat/completions"
-	systemPrompt     = "You are an expert at extracting data from InBody 270 body composition scans. Extract the requested metrics accurately and return only valid JSON."
-	userPrompt       = `Extract weight, smm, body_fat_mass, pbf, bmi, bmr, visceral_fat, whr (waist-hip ratio), and test_date from this InBody 270 scan. 
-Return ONLY JSON in this exact format:
+	systemPrompt     = "You are an expert at extracting data from InBody 270 body composition scans AND a caring personal trainer from 'House of Metamorfit'. Extract the requested metrics accurately and provide thoughtful, personalized analysis. Return only valid JSON."
+
+	// V2 User Prompt Template - includes segmental data and AI analysis
+	userPromptTemplate = `Analyze this InBody 270 scan and extract ALL available data, then provide personalized feedback.
+
+**EXTRACTION TASK:**
+1. Extract ALL standard metrics: weight, smm, body_fat_mass, pbf, bmi, bmr, visceral_fat, whr, test_date
+2. Extract SEGMENTAL DATA from the body composition silhouettes (if visible):
+   - Segmental Lean Mass (kg and %) for: right_arm, left_arm, trunk, right_leg, left_leg
+   - Segmental Fat Mass (kg and %) for: right_arm, left_arm, trunk, right_leg, left_leg
+
+**ANALYSIS TASK:**
+As a personal trainer from 'House of Metamorfit', analyze the results and provide:
+- Summary: 2-3 sentence overview of their body composition
+- Positive Feedback: 2-3 strengths or good aspects (array)
+- Improvements: 2-3 areas to work on (array)
+- Advice: 2-3 actionable recommendations (array)
+
+%s
+
+Return ONLY valid JSON in this EXACT format:
 {
   "weight": 0.0,
   "smm": 0.0,
@@ -27,8 +46,30 @@ Return ONLY JSON in this exact format:
   "bmr": 0,
   "visceral_fat": 0,
   "whr": 0.0,
-  "test_date": "2025-12-24T10:00:00Z"
-}`
+  "test_date": "2025-12-24T10:00:00Z",
+  "segmental_lean": {
+    "right_arm": {"mass": 0.0, "percentage": 0.0},
+    "left_arm": {"mass": 0.0, "percentage": 0.0},
+    "trunk": {"mass": 0.0, "percentage": 0.0},
+    "right_leg": {"mass": 0.0, "percentage": 0.0},
+    "left_leg": {"mass": 0.0, "percentage": 0.0}
+  },
+  "segmental_fat": {
+    "right_arm": {"mass": 0.0, "percentage": 0.0},
+    "left_arm": {"mass": 0.0, "percentage": 0.0},
+    "trunk": {"mass": 0.0, "percentage": 0.0},
+    "right_leg": {"mass": 0.0, "percentage": 0.0},
+    "left_leg": {"mass": 0.0, "percentage": 0.0}
+  },
+  "analysis": {
+    "summary": "Brief 2-3 sentence summary",
+    "positive_feedback": ["strength 1", "strength 2"],
+    "improvements": ["area 1", "area 2"],
+    "advice": ["recommendation 1", "recommendation 2"]
+  }
+}
+
+NOTE: If segmental data is not visible or unclear in the scan, use 0.0 for those values.`
 )
 
 // OpenRouterDigitizer implements domain.DigitizerService using OpenRouter API
@@ -50,12 +91,41 @@ func NewOpenRouterDigitizer(apiKey, model string) *OpenRouterDigitizer {
 }
 
 // ExtractMetrics uses OpenRouter AI to extract InBody metrics from an image
-func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []byte) (*domain.InBodyMetrics, error) {
+func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []byte, previousRecord *domain.InBodyRecord) (*domain.InBodyMetrics, error) {
 	// Detect image type from file header
 	imageType := detectImageType(imageData)
 
 	// Encode image to base64
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
+
+	// Build previous scan context if available
+	previousContext := "\n**PREVIOUS SCAN (for trend analysis):**\nNo previous scan available.\n"
+	if previousRecord != nil {
+		previousContext = fmt.Sprintf(`
+**PREVIOUS SCAN (for trend analysis):**
+Test Date: %s
+Weight: %.1f kg | SMM: %.1f kg | Body Fat: %.1f kg
+BMI: %.1f | PBF: %.1f%% | BMR: %d kcal
+Visceral Fat: %d | WHR: %.2f
+
+Use this to comment on trends (improving/declining) in your analysis.
+`,
+			previousRecord.TestDateTime.Format("2006-01-02"),
+			previousRecord.Weight,
+			previousRecord.SMM,
+			previousRecord.BodyFatMass,
+			previousRecord.BMI,
+			previousRecord.PBF,
+			previousRecord.BMR,
+			previousRecord.VisceralFatLevel,
+			previousRecord.WaistHipRatio,
+		)
+	}
+
+	// Build the user prompt with previous context
+	// Escape any % characters in previousContext to avoid fmt.Sprintf errors
+	escapedContext := strings.ReplaceAll(previousContext, "%", "%%")
+	userPrompt := fmt.Sprintf(userPromptTemplate, escapedContext)
 
 	// Build request payload
 	requestBody := map[string]interface{}{

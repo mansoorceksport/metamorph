@@ -70,6 +70,17 @@ func (r *MongoInBodyRepository) Create(ctx context.Context, record *domain.InBod
 		},
 	}
 
+	// Add V2 fields if present (backward compatibility)
+	if record.SegmentalLean != nil {
+		doc["segmental_lean"] = record.SegmentalLean
+	}
+	if record.SegmentalFat != nil {
+		doc["segmental_fat"] = record.SegmentalFat
+	}
+	if record.Analysis != nil {
+		doc["analysis"] = record.Analysis
+	}
+
 	_, err := r.collection.InsertOne(ctx, doc)
 	if err != nil {
 		return fmt.Errorf("failed to insert inbody record: %w", err)
