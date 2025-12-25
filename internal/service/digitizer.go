@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
@@ -122,41 +121,15 @@ func NewOpenRouterDigitizer(apiKey, model string) *OpenRouterDigitizer {
 }
 
 // ExtractMetrics uses OpenRouter AI to extract InBody metrics from an image
-func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []byte, previousRecord *domain.InBodyRecord) (*domain.InBodyMetrics, error) {
+func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []byte) (*domain.InBodyMetrics, error) {
 	// Detect image type from file header
 	imageType := detectImageType(imageData)
 
 	// Encode image to base64
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
-	// Build previous scan context if available
-	previousContext := "\n**PREVIOUS SCAN (for trend analysis):**\nNo previous scan available.\n"
-	if previousRecord != nil {
-		previousContext = fmt.Sprintf(`
-**PREVIOUS SCAN (for trend analysis):**
-Test Date: %s
-Weight: %.1f kg | SMM: %.1f kg | Body Fat: %.1f kg
-BMI: %.1f | PBF: %.1f%% | BMR: %d kcal
-Visceral Fat: %d | WHR: %.2f
-
-Use this to comment on trends (improving/declining) in your analysis.
-`,
-			previousRecord.TestDateTime.Format("2006-01-02"),
-			previousRecord.Weight,
-			previousRecord.SMM,
-			previousRecord.BodyFatMass,
-			previousRecord.BMI,
-			previousRecord.PBF,
-			previousRecord.BMR,
-			previousRecord.VisceralFatLevel,
-			previousRecord.WaistHipRatio,
-		)
-	}
-
-	// Build the user prompt with previous context
-	// Escape any % characters in previousContext to avoid fmt.Sprintf errors
-	escapedContext := strings.ReplaceAll(previousContext, "%", "%%")
-	userPrompt := fmt.Sprintf(userPromptTemplate, escapedContext)
+	// Build the user prompt (no previous context - analyzing current scan only)
+	userPrompt := fmt.Sprintf(userPromptTemplate, "")
 
 	// Build request payload
 	requestBody := map[string]interface{}{

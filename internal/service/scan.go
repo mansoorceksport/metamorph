@@ -56,16 +56,8 @@ func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageD
 		imageURL = uploadedURL // Use the permanent URL
 	}
 
-	// Step 0.5: Fetch previous scan for trend analysis (V2 feature)
-	previousScan, err := s.repository.GetLatestByUserID(ctx, userID)
-	if err != nil {
-		// Log but don't fail - previous scan is optional
-		fmt.Printf("Warning: failed to fetch previous scan for trend analysis: %v\n", err)
-		previousScan = nil
-	}
-
-	// Step 1: Extract metrics using AI (with previous scan context for V2)
-	metrics, err := s.digitizer.ExtractMetrics(ctx, imageData, previousScan)
+	// Step 1: Extract metrics using AI (analyzing current scan only)
+	metrics, err := s.digitizer.ExtractMetrics(ctx, imageData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract metrics: %w", err)
 	}

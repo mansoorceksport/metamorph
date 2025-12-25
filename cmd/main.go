@@ -107,11 +107,14 @@ func main() {
 
 	// Initialize analytics service
 	analyticsService := service.NewAnalyticsService(mongoRepo)
+
+	// Initialize trend service
+	trendService := service.NewTrendService(mongoRepo, redisRepo)
 	log.Println("✓ Services initialized")
 
 	// Initialize handlers
 	scanHandler := handler.NewScanHandler(scanService, cfg.Server.MaxUploadSizeMB)
-	analyticsHandler := handler.NewAnalyticsHandler(analyticsService)
+	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, trendService)
 	log.Println("✓ Handlers initialized")
 
 	// Create Fiber app
@@ -156,6 +159,7 @@ func main() {
 	analytics.Use(middleware.FirebaseAuth(firebaseApp))
 
 	analytics.Get("/history", analyticsHandler.GetHistory) // GET /v1/analytics/history
+	analytics.Get("/recap", analyticsHandler.GetRecap)     // GET /v1/analytics/recap
 
 	// Start server in goroutine
 	port := cfg.Server.Port

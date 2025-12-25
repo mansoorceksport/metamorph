@@ -18,12 +18,14 @@ const (
 
 // MongoInBodyRepository implements domain.InBodyRepository using MongoDB
 type MongoInBodyRepository struct {
-	collection *mongo.Collection
+	collection             *mongo.Collection
+	trendSummaryCollection *mongo.Collection
 }
 
 // NewMongoInBodyRepository creates a new MongoDB repository
 func NewMongoInBodyRepository(db *mongo.Database) *MongoInBodyRepository {
 	collection := db.Collection(collectionName)
+	trendSummaryCollection := db.Collection("trend_summaries")
 
 	// Create indexes for better query performance
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -38,8 +40,18 @@ func NewMongoInBodyRepository(db *mongo.Database) *MongoInBodyRepository {
 	}
 	_, _ = collection.Indexes().CreateOne(ctx, indexModel)
 
+	// Index on user_id and last_generated_at for trend summaries
+	trendIndexModel := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "user_id", Value: 1},
+			{Key: "last_generated_at", Value: -1}, // Descending for latest first
+		},
+	}
+	_, _ = trendSummaryCollection.Indexes().CreateOne(ctx, trendIndexModel)
+
 	return &MongoInBodyRepository{
-		collection: collection,
+		collection:             collection,
+		trendSummaryCollection: trendSummaryCollection,
 	}
 }
 
@@ -255,4 +267,46 @@ func (r *MongoInBodyRepository) GetTrendHistory(ctx context.Context, userID stri
 	}
 
 	return records, nil
+}
+
+// SaveTrendSummary saves a trend summary to the database
+func (r *MongoInBodyRepository) SaveTrendSummary(ctx context.Context, summary *domain.TrendSummary) error {
+	// Generate new ObjectID
+	objectID := primitive.NewObjectID()
+
+	// Create BSON document
+	doc := bson.M{
+		"_id":               objectID,
+		"user_id":           summary.UserID,
+		"summary_text":      summary.SummaryText,
+		"last_generated_at": summary.LastGeneratedAt,
+		"included_scan_ids": summary.IncludedScanIDs,
+	}
+
+	_, err := r.trendSummaryCollection.InsertOne(ctx, doc)
+	if err != nil {
+		return fmt.Errorf("failed to insert trend summary: %w", err)
+	}
+
+	// Set the ID in the summary (as hex string for domain model)
+	summary.ID = objectID.Hex()
+
+	return nil
+}
+
+// GetLatestTrendSummary retrieves the most recent trend summary for a user
+func (r *MongoInBodyRepository) GetLatestTrendSummary(ctx context.Context, userID string) (*domain.TrendSummary, error) {
+	filter := bson.M{"user_id": userID}
+	opts := options.FindOne().SetSort(bson.D{{Key: "last_generated_at", Value: -1}})
+
+	var summary domain.TrendSummary
+	err := r.trendSummaryCollection.FindOne(ctx, filter, opts).Decode(&summary)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil // No summary found, return nil
+		}
+		return nil, fmt.Errorf("failed to find latest trend summary: %w", err)
+	}
+
+	return &summary, nil
 }

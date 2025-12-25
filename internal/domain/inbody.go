@@ -78,6 +78,15 @@ type InBodyMetrics struct {
 	Analysis      *BodyAnalysis  `json:"analysis,omitempty"`
 }
 
+// TrendSummary represents an AI-generated trend recap for a user
+type TrendSummary struct {
+	ID              string    `bson:"_id,omitempty" json:"id"`
+	UserID          string    `bson:"user_id" json:"user_id"`
+	SummaryText     string    `bson:"summary_text" json:"summary_text"`
+	LastGeneratedAt time.Time `bson:"last_generated_at" json:"last_generated_at"`
+	IncludedScanIDs []string  `bson:"included_scan_ids" json:"included_scan_ids"`
+}
+
 // InBodyRepository defines the interface for InBodyRecord persistence
 // Implementations should handle MongoDB operations
 type InBodyRepository interface {
@@ -104,6 +113,12 @@ type InBodyRepository interface {
 
 	// GetTrendHistory retrieves N scans for analytics, sorted ascending by date
 	GetTrendHistory(ctx context.Context, userID string, limit int) ([]*InBodyRecord, error)
+
+	// SaveTrendSummary saves a trend summary to the database
+	SaveTrendSummary(ctx context.Context, summary *TrendSummary) error
+
+	// GetLatestTrendSummary retrieves the most recent trend summary for a user
+	GetLatestTrendSummary(ctx context.Context, userID string) (*TrendSummary, error)
 }
 
 // CacheRepository defines the interface for caching operations
@@ -118,14 +133,21 @@ type CacheRepository interface {
 
 	// InvalidateUserCache removes cached data for a user
 	InvalidateUserCache(ctx context.Context, userID string) error
+
+	// SetTrendRecap caches a trend recap for a user with TTL
+	SetTrendRecap(ctx context.Context, userID string, summary *TrendSummary, ttl time.Duration) error
+
+	// GetTrendRecap retrieves the cached trend recap for a user
+	// Returns nil if not found or expired
+	GetTrendRecap(ctx context.Context, userID string) (*TrendSummary, error)
 }
 
 // DigitizerService defines the interface for AI-based metric extraction
 // Implementations should handle OpenRouter API communication
 type DigitizerService interface {
 	// ExtractMetrics uses AI to extract InBody metrics from an image
-	// previousRecord is optional - if provided, it will be used for trend analysis
-	ExtractMetrics(ctx context.Context, imageData []byte, previousRecord *InBodyRecord) (*InBodyMetrics, error)
+	// Analyzes only the current image without historical context
+	ExtractMetrics(ctx context.Context, imageData []byte) (*InBodyMetrics, error)
 }
 
 // ScanService defines the interface for business logic around scan processing

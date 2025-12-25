@@ -11,12 +11,14 @@ import (
 // AnalyticsHandler handles HTTP requests for analytics operations
 type AnalyticsHandler struct {
 	analyticsService *service.AnalyticsService
+	trendService     *service.TrendService
 }
 
 // NewAnalyticsHandler creates a new analytics handler
-func NewAnalyticsHandler(analyticsService *service.AnalyticsService) *AnalyticsHandler {
+func NewAnalyticsHandler(analyticsService *service.AnalyticsService, trendService *service.TrendService) *AnalyticsHandler {
 	return &AnalyticsHandler{
 		analyticsService: analyticsService,
+		trendService:     trendService,
 	}
 }
 
@@ -53,5 +55,29 @@ func (h *AnalyticsHandler) GetHistory(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"data":    history,
+	})
+}
+
+// GetRecap handles GET /v1/analytics/recap
+func (h *AnalyticsHandler) GetRecap(c *fiber.Ctx) error {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"error":   "user not authenticated",
+		})
+	}
+
+	recap, err := h.trendService.GenerateTrendRecap(c.Context(), userID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "failed to generate trend recap: " + err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    recap,
 	})
 }
