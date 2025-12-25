@@ -5,11 +5,26 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-
+  
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  seaweedfs:
+    image: chrislusf/seaweedfs
+    ports:
+      - "8333:8333" # S3 API
+      - "8334:8080" # Volume Server
+      - "8899:8888" # Filer UI (Web Interface) - Remapped to 8899
+    command: 'server -s3 -dir=/data'
+    volumes:
+      - seaweedfs_data:/data
 
 volumes:
   mongo_data:
+  redis_data:
+  seaweedfs_data:

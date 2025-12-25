@@ -15,12 +15,19 @@ type Config struct {
 	Redis      RedisConfig
 	Firebase   FirebaseConfig
 	OpenRouter OpenRouterConfig
+	S3         S3Config
 }
 
 // ServerConfig holds HTTP server configuration
 type ServerConfig struct {
 	Port            string
 	MaxUploadSizeMB int64
+}
+
+type S3Config struct {
+	Endpoint string
+	Region   string
+	Bucket   string
 }
 
 // MongoDBConfig holds MongoDB connection configuration
@@ -75,6 +82,11 @@ func Load() (*Config, error) {
 		OpenRouter: OpenRouterConfig{
 			APIKey: getEnv("OPENROUTER_API_KEY", ""),
 			Model:  getEnv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001"),
+		},
+		S3: S3Config{
+			Endpoint: getEnv("S3_ENDPOINT", "http://localhost:8333"),
+			Region:   getEnv("S3_REGION", "us-east-1"),
+			Bucket:   getEnv("S3_BUCKET", "inbody-scans"),
 		},
 	}
 

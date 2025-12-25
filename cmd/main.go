@@ -79,13 +79,31 @@ func main() {
 	log.Println("✓ Redis connected")
 
 	// Initialize repositories
-	inbodyRepo := repository.NewMongoInBodyRepository(mongoDB)
-	cacheRepo := repository.NewRedisCacheRepository(redisClient)
-	log.Println("✓ Repositories initialized")
+	mongoRepo := repository.NewMongoInBodyRepository(mongoDB)
+	redisRepo := repository.NewRedisCacheRepository(redisClient)
+
+	s3Repo, err := repository.NewSeaweedS3Repository(ctx, cfg.S3)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize S3 repository: %v", err)
+		// We don't fatal here because app can technically run without upload if we wanted,
+		// but given requirements it implies critical failure.
+		// For now we'll log warning and s3Repo will be nil (service handles nil)
+	} else {
+		log.Println("✓ SeaweedFS S3 repository initialized")
+	}
 
 	// Initialize services
-	digitizerService := service.NewOpenRouterDigitizer(cfg.OpenRouter.APIKey, cfg.OpenRouter.Model)
-	scanService := service.NewScanService(digitizerService, inbodyRepo, cacheRepo)
+	digitizerService := service.NewOpenRouterDigitizer(
+		cfg.OpenRouter.APIKey,
+		cfg.OpenRouter.Model,
+	)
+
+	scanService := service.NewScanService(
+		digitizerService,
+		mongoRepo,
+		redisRepo,
+		s3Repo,
+	)
 	log.Println("✓ Services initialized")
 
 	// Initialize handlers

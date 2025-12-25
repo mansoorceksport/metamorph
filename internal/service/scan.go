@@ -14,9 +14,10 @@ const (
 
 // ScanServiceImpl implements domain.ScanService
 type ScanServiceImpl struct {
-	digitizer  domain.DigitizerService
-	repository domain.InBodyRepository
-	cache      domain.CacheRepository
+	digitizer      domain.DigitizerService
+	repository     domain.InBodyRepository
+	cache          domain.CacheRepository
+	fileRepository domain.FileRepository
 }
 
 // NewScanService creates a new scan service
@@ -24,16 +25,37 @@ func NewScanService(
 	digitizer domain.DigitizerService,
 	repository domain.InBodyRepository,
 	cache domain.CacheRepository,
+	fileRepository domain.FileRepository,
 ) *ScanServiceImpl {
 	return &ScanServiceImpl{
-		digitizer:  digitizer,
-		repository: repository,
-		cache:      cache,
+		digitizer:      digitizer,
+		repository:     repository,
+		cache:          cache,
+		fileRepository: fileRepository,
 	}
 }
 
 // ProcessScan orchestrates the entire digitization workflow
 func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageData []byte, imageURL string) (*domain.InBodyRecord, error) {
+	// Step 0: Upload image to S3 (SeaweedFS) if fileRepository is available
+	// We generate a filename based on userID and timestamp
+	if s.fileRepository != nil {
+		filename := fmt.Sprintf("%s/%d.jpg", userID, time.Now().UnixNano()) // Simple path strategy
+		contentType := "image/jpeg"                                         // Default, ideally detect dynamically
+
+		// Improve content type detection if possible (reusing logic from digitizer would be good, but keep simple for now)
+		if len(imageData) > 0 && imageData[0] == 0x89 && imageData[1] == 0x50 {
+			contentType = "image/png"
+			filename = fmt.Sprintf("%s/%d.png", userID, time.Now().UnixNano())
+		}
+
+		uploadedURL, err := s.fileRepository.Upload(ctx, imageData, filename, contentType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to upload image: %w", err)
+		}
+		imageURL = uploadedURL // Use the permanent URL
+	}
+
 	// Step 1: Extract metrics using AI
 	metrics, err := s.digitizer.ExtractMetrics(ctx, imageData)
 	if err != nil {

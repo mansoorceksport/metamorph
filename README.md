@@ -30,30 +30,32 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
 
 ## Prerequisites
 
-- Go 1.22+
-- MongoDB (running on localhost:27017 or configured URI)
-- Redis (running on localhost:6379 or configured URI)
-- Firebase project with service account credentials
-- OpenRouter API key
+- **Storage**: MongoDB (Metadata), SeaweedFS (Object Storage/S3)
+- **Caching**: Redis
+- **Containerization**: Docker & Docker Compose
+
+## Prerequisites
+
+- Go 1.21+
+- Docker & Docker Compose
+- Firebase Project (Service Account)
+- OpenRouter API Key
+- SeaweedFS (Included in Docker Compose)
 
 ## Setup
 
-### 1. Clone and Install Dependencies
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/mansoorceksport/metamorph.git
+   cd metamorph
+   ```
 
-```bash
-cd /Users/mansoor/go/src/github.com/mansoorceksport/metamorph
-go mod download
-```
-
-### 2. Configure Environment Variables
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your credentials:
-
-```env
+2. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   # Set S3_ENDPOINT=http://127.0.0.1:8333 for SeaweedFS
+   ```env
 # Server
 PORT=8080
 MAX_UPLOAD_SIZE_MB=5
