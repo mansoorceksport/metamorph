@@ -104,10 +104,14 @@ func main() {
 		redisRepo,
 		s3Repo,
 	)
+
+	// Initialize analytics service
+	analyticsService := service.NewAnalyticsService(mongoRepo)
 	log.Println("✓ Services initialized")
 
 	// Initialize handlers
 	scanHandler := handler.NewScanHandler(scanService, cfg.Server.MaxUploadSizeMB)
+	analyticsHandler := handler.NewAnalyticsHandler(analyticsService)
 	log.Println("✓ Handlers initialized")
 
 	// Create Fiber app
@@ -146,6 +150,12 @@ func main() {
 	scans.Get("/:id", scanHandler.GetScan)            // GET /v1/scans/:id
 	scans.Patch("/:id", scanHandler.UpdateScan)       // PATCH /v1/scans/:id
 	scans.Delete("/:id", scanHandler.DeleteScan)      // DELETE /v1/scans/:id
+
+	// Analytics endpoints - protected by Firebase Auth
+	analytics := v1.Group("/analytics")
+	analytics.Use(middleware.FirebaseAuth(firebaseApp))
+
+	analytics.Get("/history", analyticsHandler.GetHistory) // GET /v1/analytics/history
 
 	// Start server in goroutine
 	port := cfg.Server.Port

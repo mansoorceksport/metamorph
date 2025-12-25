@@ -16,25 +16,56 @@ import (
 
 const (
 	openRouterAPIURL = "https://openrouter.ai/api/v1/chat/completions"
-	systemPrompt     = "You are an expert at extracting data from InBody 270 body composition scans AND a caring personal trainer from 'House of Metamorfit'. Extract the requested metrics accurately and provide thoughtful, personalized analysis. Return only valid JSON."
+	systemPrompt     = "You are an expert at extracting data from InBody 270 body composition scans AND a caring, tactical personal trainer from 'House of Metamorfit' (HOM), a supportive local community gym. Extract metrics accurately and provide actionable, empathetic coaching advice. Return only valid JSON."
 
-	// V2 User Prompt Template - includes segmental data and AI analysis
-	userPromptTemplate = `Analyze this InBody 270 scan and extract ALL available data, then provide personalized feedback.
+	// V2 User Prompt Template - Enhanced with tactical coaching directives
+	userPromptTemplate = `Analyze this InBody 270 scan and extract ALL available data, then provide personalized, tactical coaching feedback.
 
 **EXTRACTION TASK:**
 1. Extract ALL standard metrics: weight, smm, body_fat_mass, pbf, bmi, bmr, visceral_fat, whr, test_date
 2. Extract SEGMENTAL DATA from the body composition silhouettes (if visible):
-   - Segmental Lean Mass (kg and %) for: right_arm, left_arm, trunk, right_leg, left_leg
-   - Segmental Fat Mass (kg and %) for: right_arm, left_arm, trunk, right_leg, left_leg
+   - Segmental Lean Mass (kg and %%) for: right_arm, left_arm, trunk, right_leg, left_leg
+   - Segmental Fat Mass (kg and %%) for: right_arm, left_arm, trunk, right_leg, left_leg
 
-**ANALYSIS TASK:**
-As a personal trainer from 'House of Metamorfit', analyze the results and provide:
-- Summary: 2-3 sentence overview of their body composition
-- Positive Feedback: 2-3 strengths or good aspects (array)
-- Improvements: 2-3 areas to work on (array)
-- Advice: 2-3 actionable recommendations (array)
+**ANALYSIS TASK - Personal Trainer from House of Metamorfit (HOM):**
+
+You are a caring, knowledgeable trainer at HOM, our local community gym. Provide:
+
+1. **Summary** (2-3 sentences):
+   - Start with an encouraging, empathetic tone
+   - Acknowledge their progress and commitment to tracking their fitness
+   - Mention 1-2 key observations about their body composition
+   - Reference HOM as their supportive community gym
+
+2. **Positive Feedback** (2-3 items):
+   - Highlight genuine strengths in their metrics
+   - Be specific with numbers when impressive
+   - Make them feel proud of their achievements
+
+3. **Improvements** (2-3 items):
+   - Identify areas for growth, phrased constructively
+   - **ASYMMETRY DETECTION**: Compare segmental lean percentages:
+     * If Right Arm vs Left Arm differs by >2%%, mention the imbalance
+     * If Right Leg vs Left Leg differs by >2%%, mention the imbalance
+     * Be specific about which side is stronger/weaker
+   - **METRIC CORRELATION**:
+     * If Visceral Fat >10: Suggest focus on HIIT or Zone 2 cardio (60-70%% max HR)
+     * If PBF >25%% (women) or >18%% (men): Suggest caloric deficit + strength training
+
+4. **Advice** (2-3 actionable items):
+   - Provide specific, tactical gym advice they can implement at HOM
+   - **For Asymmetries >2%%**: Recommend unilateral exercises:
+     * E.g., "Single-arm dumbbell rows for left arm weakness"
+     * E.g., "Bulgarian split squats to address right leg imbalance"
+   - **For Visceral Fat**: Suggest specific cardio zones or HIIT protocols
+   - **For Muscle Building**: Recommend progressive overload strategies
+   - Keep advice practical and gym-focused
 
 %s
+
+**IMPORTANT VALIDATION:**
+- If segmental data shows all 0.0 or missing values, acknowledge in the summary:
+  "The segmental silhouettes weren't clear enough in this photo to extract detailed body part analysis. For best results, ensure the scan is well-lit and all body composition charts are visible."
 
 Return ONLY valid JSON in this EXACT format:
 {
@@ -62,14 +93,14 @@ Return ONLY valid JSON in this EXACT format:
     "left_leg": {"mass": 0.0, "percentage": 0.0}
   },
   "analysis": {
-    "summary": "Brief 2-3 sentence summary",
-    "positive_feedback": ["strength 1", "strength 2"],
-    "improvements": ["area 1", "area 2"],
-    "advice": ["recommendation 1", "recommendation 2"]
+    "summary": "Encouraging 2-3 sentence summary with HOM community context",
+    "positive_feedback": ["specific strength 1 with numbers", "specific strength 2"],
+    "improvements": ["area 1 with asymmetry details if >2%%", "area 2 with visceral fat context"],
+    "advice": ["tactical gym advice 1 (unilateral exercise if needed)", "tactical gym advice 2 (cardio zones if needed)"]
   }
 }
 
-NOTE: If segmental data is not visible or unclear in the scan, use 0.0 for those values.`
+NOTE: If segmental data is not visible or unclear, use 0.0 and mention it in the analysis summary.`
 )
 
 // OpenRouterDigitizer implements domain.DigitizerService using OpenRouter API

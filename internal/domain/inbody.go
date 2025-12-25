@@ -101,6 +101,9 @@ type InBodyRepository interface {
 
 	// Delete removes a scan record by its ID
 	Delete(ctx context.Context, id string) error
+
+	// GetTrendHistory retrieves N scans for analytics, sorted ascending by date
+	GetTrendHistory(ctx context.Context, userID string, limit int) ([]*InBodyRecord, error)
 }
 
 // CacheRepository defines the interface for caching operations

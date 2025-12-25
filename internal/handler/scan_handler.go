@@ -73,7 +73,7 @@ func (h *ScanHandler) DigitizeScan(c *fiber.Ctx) error {
 	if !isValidImageType(imageFile) {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"error":   "invalid file type, only JPEG and PNG images are allowed",
+			"error":   "invalid file type, only JPEG, PNG, and HEIC images are allowed",
 		})
 	}
 
@@ -120,13 +120,17 @@ func (h *ScanHandler) DigitizeScan(c *fiber.Ctx) error {
 func isValidImageType(file *multipart.FileHeader) bool {
 	// Check by content type
 	contentType := file.Header.Get("Content-Type")
-	if contentType == "image/jpeg" || contentType == "image/jpg" || contentType == "image/png" {
+	if contentType == "image/jpeg" ||
+		contentType == "image/jpg" ||
+		contentType == "image/png" ||
+		contentType == "image/heic" ||
+		contentType == "image/heif" {
 		return true
 	}
 
 	// Fallback: check by file extension
 	ext := strings.ToLower(filepath.Ext(file.Filename))
-	return ext == ".jpg" || ext == ".jpeg" || ext == ".png"
+	return ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".heic" || ext == ".heif"
 }
 
 // ListScans handles GET /v1/scans

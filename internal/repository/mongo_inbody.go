@@ -224,3 +224,35 @@ func (r *MongoInBodyRepository) Delete(ctx context.Context, id string) error {
 
 	return nil
 }
+
+// GetTrendHistory retrieves N scans for analytics, sorted ascending by test_date_time
+// Uses projection to only return necessary fields for charting
+func (r *MongoInBodyRepository) GetTrendHistory(ctx context.Context, userID string, limit int) ([]*domain.InBodyRecord, error) {
+	filter := bson.M{"user_id": userID}
+
+	// Sort ascending (oldest first) for left-to-right chart plotting
+	opts := options.Find().
+		SetSort(bson.D{{Key: "test_date_time", Value: 1}}).
+		SetLimit(int64(limit)).
+		SetProjection(bson.M{
+			"test_date_time": 1,
+			"weight":         1,
+			"smm":            1,
+			"pbf":            1,
+			"segmental_lean": 1,
+			"segmental_fat":  1,
+		})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find trend history: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var records []*domain.InBodyRecord
+	if err := cursor.All(ctx, &records); err != nil {
+		return nil, fmt.Errorf("failed to decode trend history: %w", err)
+	}
+
+	return records, nil
+}

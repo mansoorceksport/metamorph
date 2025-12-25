@@ -148,7 +148,7 @@ Content-Type: multipart/form-data
 ```
 
 **Request**:
-- `image`: Image file (JPEG/PNG, max 5MB)
+- `image`: Image file (JPEG/PNG/HEIC, max 5MB)
 
 **Response**:
 ```json
@@ -302,6 +302,53 @@ Authorization: Bearer <firebase_jwt_token>
 **Errors**:
 - `404`: Scan not found
 - `403`: Access denied (not your scan)
+
+### Analytics History (for Charting)
+```
+GET /v1/analytics/history?limit=10
+Authorization: Bearer <firebase_jwt_token>
+```
+
+**Query Parameters**:
+- `limit` (optional): Number of scans to retrieve (default: 10, max: 100)
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "progress": {
+      "total_scans": 8,
+      "first_scan_date": "2025-01-15",
+      "latest_scan_date": "2025-12-20",
+      "weight_change": -2.5,
+      "muscle_gained": 1.5,
+      "body_fat_change": -3.2
+    },
+    "history": [
+      {
+        "date": "2025-01-15T10:00:00Z",
+        "core_metrics": {
+          "weight": 78.0,
+          "smm": 33.7,
+          "pbf": 20.1
+        },
+        "segmental_trends": {
+          "lean": {
+            "right_arm": {"mass": 2.7, "percentage": 8.0},
+            "left_arm": {"mass": 2.6, "percentage": 7.7}
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+**Use Cases**:
+- 📊 **"Big Three" Chart**: Plot Weight, SMM, PBF over time
+- 📊 **Segmental Balance**: Track right vs left arm muscle balance
+- 🏆 **Progress Summary**: Show total gains since joining HOM Gym
 
 ## API Documentation
 
