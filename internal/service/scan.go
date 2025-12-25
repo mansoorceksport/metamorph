@@ -92,3 +92,106 @@ func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageD
 
 	return record, nil
 }
+
+// GetAllScans retrieves all scans for a user
+func (s *ScanServiceImpl) GetAllScans(ctx context.Context, userID string) ([]*domain.InBodyRecord, error) {
+	return s.repository.FindAllByUserID(ctx, userID)
+}
+
+// GetScanByID retrieves a single scan with ownership verification
+func (s *ScanServiceImpl) GetScanByID(ctx context.Context, userID string, scanID string) (*domain.InBodyRecord, error) {
+	record, err := s.repository.FindByID(ctx, scanID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify ownership
+	if record.UserID != userID {
+		return nil, domain.ErrForbidden
+	}
+
+	return record, nil
+}
+
+// UpdateScan updates specific metrics with ownership verification
+func (s *ScanServiceImpl) UpdateScan(ctx context.Context, userID string, scanID string, updates map[string]interface{}) (*domain.InBodyRecord, error) {
+	// Fetch existing record
+	record, err := s.repository.FindByID(ctx, scanID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify ownership
+	if record.UserID != userID {
+		return nil, domain.ErrForbidden
+	}
+
+	// Apply updates to allowed fields
+	if weight, ok := updates["weight"].(float64); ok {
+		record.Weight = weight
+	}
+	if smm, ok := updates["smm"].(float64); ok {
+		record.SMM = smm
+	}
+	if bodyFatMass, ok := updates["body_fat_mass"].(float64); ok {
+		record.BodyFatMass = bodyFatMass
+	}
+	if pbf, ok := updates["pbf"].(float64); ok {
+		record.PBF = pbf
+	}
+	if bmi, ok := updates["bmi"].(float64); ok {
+		record.BMI = bmi
+	}
+	if bmr, ok := updates["bmr"].(float64); ok {
+		record.BMR = int(bmr)
+	}
+	if visceralFat, ok := updates["visceral_fat"].(float64); ok {
+		record.VisceralFatLevel = int(visceralFat)
+	}
+	if whr, ok := updates["whr"].(float64); ok {
+		record.WaistHipRatio = whr
+	}
+
+	// Update in database
+	if err := s.repository.Update(ctx, scanID, record); err != nil {
+		return nil, err
+	}
+
+	// Invalidate cache for this user
+	_ = s.cache.InvalidateUserCache(ctx, userID)
+
+	// Return updated record
+	return s.repository.FindByID(ctx, scanID)
+}
+
+// DeleteScan removes a scan and its associated image with ownership verification
+func (s *ScanServiceImpl) DeleteScan(ctx context.Context, userID string, scanID string) error {
+	// Fetch existing record
+	record, err := s.repository.FindByID(ctx, scanID)
+	if err != nil {
+		return err
+	}
+
+	// Verify ownership
+	if record.UserID != userID {
+		return domain.ErrForbidden
+	}
+
+	// Delete image from S3 if fileRepository is available and imageURL exists
+	if s.fileRepository != nil && record.Metadata.ImageURL != "" {
+		if err := s.fileRepository.Delete(ctx, record.Metadata.ImageURL); err != nil {
+			// Log error but continue with database deletion
+			fmt.Printf("Warning: failed to delete image from storage: %v\n", err)
+		}
+	}
+
+	// Delete from database
+	if err := s.repository.Delete(ctx, scanID); err != nil {
+		return err
+	}
+
+	// Invalidate cache for this user
+	_ = s.cache.InvalidateUserCache(ctx, userID)
+
+	return nil
+}

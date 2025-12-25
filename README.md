@@ -137,7 +137,7 @@ Response:
 }
 ```
 
-### Digitize InBody Scan
+### Create Scan (Digitize)
 ```
 POST /v1/scans/digitize
 Authorization: Bearer <firebase_jwt_token>
@@ -161,13 +161,134 @@ Content-Type: multipart/form-data
     "bmi": 22.5,
     "pbf": 16.9,
     "bmr": 1650,
+    "visceral_fat": 8,
+    "whr": 0.85,
     "metadata": {
-      "image_url": "scan.jpg",
+      "image_url": "http://127.0.0.1:8333/inbody-scans/user123/1234567890.jpg",
       "processed_at": "2025-12-24T17:30:00Z"
     }
   }
 }
 ```
+
+### List All Scans
+```
+GET /v1/scans
+Authorization: Bearer <firebase_jwt_token>
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "676a1b2c3d4e5f6g7h8i9j0k",
+      "user_id": "firebase_user_uid",
+      "test_date_time": "2025-12-24T10:00:00Z",
+      "weight": 75.5,
+      ...
+    }
+  ]
+}
+```
+
+### Get Single Scan
+```
+GET /v1/scans/:id
+Authorization: Bearer <firebase_jwt_token>
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "676a1b2c3d4e5f6g7h8i9j0k",
+    ...
+  }
+}
+```
+
+**Errors**:
+- `404`: Scan not found
+- `403`: Access denied (not your scan)
+
+### Update Scan Metrics
+```
+PATCH /v1/scans/:id
+Authorization: Bearer <firebase_jwt_token>
+Content-Type: application/json
+```
+
+**Request Body** (all fields optional):
+```json
+{
+  "weight": 76.0,
+  "smm": 35.5,
+  "body_fat_mass": 12.5,
+  "pbf": 16.5,
+  "bmi": 22.6,
+  "bmr": 1660,
+  "visceral_fat": 7,
+  "whr": 0.84
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "676a1b2c3d4e5f6g7h8i9j0k",
+    ...
+  }
+}
+```
+
+**Errors**:
+- `404`: Scan not found
+- `403`: Access denied (not your scan)
+
+### Delete Scan
+```
+DELETE /v1/scans/:id
+Authorization: Bearer <firebase_jwt_token>
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "scan deleted successfully"
+}
+```
+
+**Note**: This also deletes the associated image from SeaweedFS storage.
+
+**Errors**:
+- `404`: Scan not found
+- `403`: Access denied (not your scan)
+
+## API Documentation
+
+The complete API specification is available as an OpenAPI 3.0 document:
+
+📄 **[OpenAPI Spec](docs/openapi.yaml)**
+
+### Using with Postman
+
+1. Open Postman
+2. Click **Import** → **File**
+3. Select `docs/openapi.yaml`
+4. Postman will create a collection with all endpoints pre-configured
+
+### Using with Other Tools
+
+The OpenAPI spec is compatible with:
+- **Swagger UI**: Interactive API documentation
+- **Insomnia**: REST client
+- **Any OpenAPI 3.0 compatible tool**
 
 ## Cost Optimization
 

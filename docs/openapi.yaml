@@ -1,0 +1,411 @@
+openapi: 3.0.3
+info:
+  title: HOM Gym - Digitizer Service API
+  description: |
+    AI-powered InBody scan digitization service with SeaweedFS storage and Firebase authentication.
+    
+    ## Authentication
+    All endpoints (except `/health`) require Firebase JWT authentication.
+    Obtain a Firebase ID token from your client and include it in the `Authorization` header as `Bearer <token>`.
+    
+    ## Features
+    - AI-powered metric extraction using Gemini 2.0 Flash
+    - Distributed object storage with SeaweedFS
+    - MongoDB metadata storage
+    - Redis caching (24h TTL)
+    - User ownership verification
+    
+  version: 1.0.0
+  contact:
+    name: mansoorceksport
+  license:
+    name: Copyright © 2025 mansoorceksport
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Service health check
+  - name: Scans
+    description: InBody scan operations (CRUD)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint
+      description: Returns the health status of the service
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: hom-gym-digitizer
+
+  /v1/scans/digitize:
+    post:
+      tags:
+        - Scans
+      summary: Digitize an InBody scan image
+      description: |
+        Upload an InBody scan image for AI-powered metric extraction.
+        The image is stored in SeaweedFS and metrics are extracted using Gemini 2.0 Flash.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: InBody scan image (JPEG/PNG, max 5MB)
+      responses:
+        '200':
+          description: Scan digitized successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/scans:
+    get:
+      tags:
+        - Scans
+      summary: List all scans for authenticated user
+      description: Returns all InBody scans for the authenticated user, sorted by test date (newest first)
+      responses:
+        '200':
+          description: List of scans retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InBodyRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/scans/{id}:
+    get:
+      tags:
+        - Scans
+      summary: Get a single scan by ID
+      description: Returns a specific InBody scan. User must own the scan.
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Scan retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      tags:
+        - Scans
+      summary: Update scan metrics
+      description: |
+        Update specific metrics of an InBody scan (useful for correcting AI miscalculations).
+        User must own the scan. All fields are optional.
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanUpdateRequest'
+            example:
+              weight: 76.0
+              smm: 35.5
+              body_fat_mass: 12.5
+              pbf: 16.5
+              bmi: 22.6
+              bmr: 1660
+              visceral_fat: 7
+              whr: 0.84
+      responses:
+        '200':
+          description: Scan updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - Scans
+      summary: Delete a scan
+      description: |
+        Permanently delete an InBody scan and its associated image from storage.
+        User must own the scan. This action cannot be undone.
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Scan deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: scan deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token
+
+  parameters:
+    ScanId:
+      name: id
+      in: path
+      required: true
+      description: MongoDB ObjectID of the scan
+      schema:
+        type: string
+        pattern: '^[a-f\d]{24}$'
+        example: 676a1b2c3d4e5f6g7h8i9j0k
+
+  schemas:
+    InBodyRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectID
+          example: 676a1b2c3d4e5f6g7h8i9j0k
+        user_id:
+          type: string
+          description: Firebase user ID
+          example: firebase_user_uid_123
+        test_date_time:
+          type: string
+          format: date-time
+          description: Date and time of the InBody test
+          example: '2025-12-24T10:00:00Z'
+        weight:
+          type: number
+          format: double
+          description: Body weight in kg
+          example: 75.5
+        smm:
+          type: number
+          format: double
+          description: Skeletal Muscle Mass in kg
+          example: 35.2
+        body_fat_mass:
+          type: number
+          format: double
+          description: Body fat mass in kg
+          example: 12.8
+        bmi:
+          type: number
+          format: double
+          description: Body Mass Index
+          example: 22.5
+        pbf:
+          type: number
+          format: double
+          description: Percent Body Fat
+          example: 16.9
+        bmr:
+          type: integer
+          description: Basal Metabolic Rate in kcal
+          example: 1650
+        visceral_fat:
+          type: integer
+          description: Visceral fat level
+          example: 8
+        whr:
+          type: number
+          format: double
+          description: Waist-Hip Ratio
+          example: 0.85
+        metadata:
+          type: object
+          properties:
+            image_url:
+              type: string
+              description: URL of the stored scan image in SeaweedFS
+              example: http://127.0.0.1:8333/inbody-scans/user123/1234567890.jpg
+            processed_at:
+              type: string
+              format: date-time
+              description: Timestamp when the scan was processed
+              example: '2025-12-24T17:30:00Z'
+
+    ScanUpdateRequest:
+      type: object
+      description: All fields are optional. Only include fields you want to update.
+      properties:
+        weight:
+          type: number
+          format: double
+          example: 76.0
+        smm:
+          type: number
+          format: double
+          example: 35.5
+        body_fat_mass:
+          type: number
+          format: double
+          example: 12.5
+        pbf:
+          type: number
+          format: double
+          example: 16.5
+        bmi:
+          type: number
+          format: double
+          example: 22.6
+        bmr:
+          type: number
+          description: Will be converted to integer
+          example: 1660
+        visceral_fat:
+          type: number
+          description: Will be converted to integer
+          example: 7
+        whr:
+          type: number
+          format: double
+          example: 0.84
+
+    ScanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/InBodyRecord'
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Error message describing what went wrong
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: 'invalid request body'
+
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: 'user not authenticated'
+
+    Forbidden:
+      description: Access denied - you don't own this resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "you don't have access to this scan"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: 'scan not found'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: 'failed to process request'

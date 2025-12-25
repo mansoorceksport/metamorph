@@ -92,3 +92,28 @@ func (r *SeaweedS3Repository) ensureBucket(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Delete removes a file from S3 storage
+func (r *SeaweedS3Repository) Delete(ctx context.Context, fileURL string) error {
+	// Parse URL to extract key
+	// Format: {Endpoint}/{Bucket}/{Key}
+	// We need to extract the key from the URL
+	// Simple approach: remove the prefix "endpoint/bucket/"
+
+	prefix := fmt.Sprintf("%s/%s/", r.publicURL, r.bucket)
+	if len(fileURL) <= len(prefix) {
+		return fmt.Errorf("invalid file URL format")
+	}
+
+	key := fileURL[len(prefix):]
+
+	_, err := r.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(r.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete file from S3: %w", err)
+	}
+
+	return nil
+}

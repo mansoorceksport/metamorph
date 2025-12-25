@@ -45,18 +45,39 @@ func NewMongoInBodyRepository(db *mongo.Database) *MongoInBodyRepository {
 
 // Create saves a new InBodyRecord to MongoDB
 func (r *MongoInBodyRepository) Create(ctx context.Context, record *domain.InBodyRecord) error {
-	// Generate new ObjectID if not provided
-	if record.ID == "" {
-		record.ID = primitive.NewObjectID().Hex()
-	}
+	// Generate new ObjectID
+	objectID := primitive.NewObjectID()
 
 	// Set processed timestamp
-	record.Metadata.ProcessedAt = time.Now()
+	processedAt := time.Now()
 
-	_, err := r.collection.InsertOne(ctx, record)
+	// Create BSON document with proper ObjectID type for _id
+	doc := bson.M{
+		"_id":            objectID, // Store as ObjectID, not string
+		"user_id":        record.UserID,
+		"test_date_time": record.TestDateTime,
+		"weight":         record.Weight,
+		"smm":            record.SMM,
+		"body_fat_mass":  record.BodyFatMass,
+		"bmi":            record.BMI,
+		"pbf":            record.PBF,
+		"bmr":            record.BMR,
+		"visceral_fat":   record.VisceralFatLevel,
+		"whr":            record.WaistHipRatio,
+		"metadata": bson.M{
+			"image_url":    record.Metadata.ImageURL,
+			"processed_at": processedAt,
+		},
+	}
+
+	_, err := r.collection.InsertOne(ctx, doc)
 	if err != nil {
 		return fmt.Errorf("failed to insert inbody record: %w", err)
 	}
+
+	// Set the ID in the record (as hex string for domain model)
+	record.ID = objectID.Hex()
+	record.Metadata.ProcessedAt = processedAt
 
 	return nil
 }
@@ -97,4 +118,98 @@ func (r *MongoInBodyRepository) GetByUserID(ctx context.Context, userID string, 
 	}
 
 	return records, nil
+}
+
+// FindAllByUserID retrieves all scans for a user, sorted by test_date_time DESC
+func (r *MongoInBodyRepository) FindAllByUserID(ctx context.Context, userID string) ([]*domain.InBodyRecord, error) {
+	filter := bson.M{"user_id": userID}
+	opts := options.Find().SetSort(bson.D{{Key: "test_date_time", Value: -1}})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find records: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var records []*domain.InBodyRecord
+	if err := cursor.All(ctx, &records); err != nil {
+		return nil, fmt.Errorf("failed to decode records: %w", err)
+	}
+
+	return records, nil
+}
+
+// FindByID retrieves a single scan by its ID
+func (r *MongoInBodyRepository) FindByID(ctx context.Context, id string) (*domain.InBodyRecord, error) {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	filter := bson.M{"_id": objectID}
+
+	var record domain.InBodyRecord
+	err = r.collection.FindOne(ctx, filter).Decode(&record)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("failed to find record: %w", err)
+	}
+
+	return &record, nil
+}
+
+// Update modifies an existing scan record
+func (r *MongoInBodyRepository) Update(ctx context.Context, id string, record *domain.InBodyRecord) error {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+
+	filter := bson.M{"_id": objectID}
+	update := bson.M{
+		"$set": bson.M{
+			"weight":        record.Weight,
+			"smm":           record.SMM,
+			"body_fat_mass": record.BodyFatMass,
+			"bmi":           record.BMI,
+			"pbf":           record.PBF,
+			"bmr":           record.BMR,
+			"visceral_fat":  record.VisceralFatLevel,
+			"whr":           record.WaistHipRatio,
+		},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update record: %w", err)
+	}
+
+	if result.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
+}
+
+// Delete removes a scan record by its ID
+func (r *MongoInBodyRepository) Delete(ctx context.Context, id string) error {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+
+	filter := bson.M{"_id": objectID}
+
+	result, err := r.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete record: %w", err)
+	}
+
+	if result.DeletedCount == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
 }

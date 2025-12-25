@@ -137,9 +137,15 @@ func main() {
 	// API v1 routes
 	v1 := app.Group("/v1")
 
-	// Scans endpoints
+	// Scans endpoints - all protected by Firebase Auth
 	scans := v1.Group("/scans")
-	scans.Post("/digitize", middleware.FirebaseAuth(firebaseApp), scanHandler.DigitizeScan)
+	scans.Use(middleware.FirebaseAuth(firebaseApp)) // Apply auth to all scan routes
+
+	scans.Post("/digitize", scanHandler.DigitizeScan) // POST /v1/scans/digitize
+	scans.Get("/", scanHandler.ListScans)             // GET /v1/scans
+	scans.Get("/:id", scanHandler.GetScan)            // GET /v1/scans/:id
+	scans.Patch("/:id", scanHandler.UpdateScan)       // PATCH /v1/scans/:id
+	scans.Delete("/:id", scanHandler.DeleteScan)      // DELETE /v1/scans/:id
 
 	// Start server in goroutine
 	port := cfg.Server.Port

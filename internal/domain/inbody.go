@@ -53,6 +53,18 @@ type InBodyRepository interface {
 
 	// GetByUserID retrieves multiple scans for a user, limited by count
 	GetByUserID(ctx context.Context, userID string, limit int) ([]*InBodyRecord, error)
+
+	// FindAllByUserID retrieves all scans for a user, sorted by test_date_time DESC
+	FindAllByUserID(ctx context.Context, userID string) ([]*InBodyRecord, error)
+
+	// FindByID retrieves a single scan by its ID
+	FindByID(ctx context.Context, id string) (*InBodyRecord, error)
+
+	// Update modifies an existing scan record
+	Update(ctx context.Context, id string, record *InBodyRecord) error
+
+	// Delete removes a scan record by its ID
+	Delete(ctx context.Context, id string) error
 }
 
 // CacheRepository defines the interface for caching operations
@@ -83,4 +95,16 @@ type ScanService interface {
 	// 2. Save to database
 	// 3. Cache the result
 	ProcessScan(ctx context.Context, userID string, imageData []byte, imageURL string) (*InBodyRecord, error)
+
+	// GetAllScans retrieves all scans for a user
+	GetAllScans(ctx context.Context, userID string) ([]*InBodyRecord, error)
+
+	// GetScanByID retrieves a single scan with ownership verification
+	GetScanByID(ctx context.Context, userID string, scanID string) (*InBodyRecord, error)
+
+	// UpdateScan updates specific metrics with ownership verification
+	UpdateScan(ctx context.Context, userID string, scanID string, updates map[string]interface{}) (*InBodyRecord, error)
+
+	// DeleteScan removes a scan and its associated image with ownership verification
+	DeleteScan(ctx context.Context, userID string, scanID string) error
 }

@@ -128,3 +128,168 @@ func isValidImageType(file *multipart.FileHeader) bool {
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	return ext == ".jpg" || ext == ".jpeg" || ext == ".png"
 }
+
+// ListScans handles GET /v1/scans
+func (h *ScanHandler) ListScans(c *fiber.Ctx) error {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"error":   "user not authenticated",
+		})
+	}
+
+	records, err := h.scanService.GetAllScans(c.Context(), userID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "failed to retrieve scans: " + err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    records,
+	})
+}
+
+// GetScan handles GET /v1/scans/:id
+func (h *ScanHandler) GetScan(c *fiber.Ctx) error {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"error":   "user not authenticated",
+		})
+	}
+
+	scanID := c.Params("id")
+	if scanID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "scan id is required",
+		})
+	}
+
+	record, err := h.scanService.GetScanByID(c.Context(), userID, scanID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "scan not found",
+			})
+		}
+		if err == domain.ErrForbidden {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"error":   "you don't have access to this scan",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "failed to retrieve scan: " + err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    record,
+	})
+}
+
+// UpdateScan handles PATCH /v1/scans/:id
+func (h *ScanHandler) UpdateScan(c *fiber.Ctx) error {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"error":   "user not authenticated",
+		})
+	}
+
+	scanID := c.Params("id")
+	if scanID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "scan id is required",
+		})
+	}
+
+	// Parse request body
+	var updates map[string]interface{}
+	if err := c.BodyParser(&updates); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "invalid request body: " + err.Error(),
+		})
+	}
+
+	record, err := h.scanService.UpdateScan(c.Context(), userID, scanID, updates)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "scan not found",
+			})
+		}
+		if err == domain.ErrForbidden {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"error":   "you don't have access to this scan",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "failed to update scan: " + err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    record,
+	})
+}
+
+// DeleteScan handles DELETE /v1/scans/:id
+func (h *ScanHandler) DeleteScan(c *fiber.Ctx) error {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"error":   "user not authenticated",
+		})
+	}
+
+	scanID := c.Params("id")
+	if scanID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   "scan id is required",
+		})
+	}
+
+	err := h.scanService.DeleteScan(c.Context(), userID, scanID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"error":   "scan not found",
+			})
+		}
+		if err == domain.ErrForbidden {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"error":   "you don't have access to this scan",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "failed to delete scan: " + err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "scan deleted successfully",
+	})
+}
