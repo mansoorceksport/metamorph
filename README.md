@@ -5,8 +5,9 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
 ## Features
 
 - 🔐 **Firebase Authentication**: Secure JWT-based user authentication
-- 🤖 **AI-Powered Extraction**: Automatic metric extraction from InBody scans using Gemini 1.5 Pro
+- 🤖 **AI-Powered Extraction**: Automatic metric extraction from InBody scans using Gemini 2.0 Flash
 - 💾 **MongoDB Storage**: Persistent storage of scan records
+- 📦 **SeaweedFS S3 Storage**: Distributed object storage for scan images
 - ⚡ **Redis Caching**: 24-hour caching of latest scans for fast dashboard loading
 - 🏗️ **Clean Architecture**: Modular structure with dependency inversion
 - 🚀 **Fiber Framework**: High-performance HTTP framework
@@ -19,7 +20,7 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
 │   └── main.go                  # Application entry point
 ├── internal/
 │   ├── domain/                  # Domain models & interfaces
-│   ├── repository/              # MongoDB & Redis implementations
+│   ├── repository/              # MongoDB, Redis & S3 implementations
 │   ├── service/                 # Business logic & AI integration
 │   ├── middleware/              # Firebase Auth middleware
 │   ├── handler/                 # HTTP handlers
@@ -28,10 +29,14 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
     └── implementation_plan.md   # Detailed architecture documentation
 ```
 
-## Prerequisites
+## Tech Stack
 
+- **Runtime**: Go 1.21+
+- **HTTP Framework**: Fiber v2
 - **Storage**: MongoDB (Metadata), SeaweedFS (Object Storage/S3)
 - **Caching**: Redis
+- **Authentication**: Firebase Admin SDK
+- **AI**: OpenRouter (Gemini 2.0 Flash)
 - **Containerization**: Docker & Docker Compose
 
 ## Prerequisites
@@ -40,7 +45,6 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
 - Docker & Docker Compose
 - Firebase Project (Service Account)
 - OpenRouter API Key
-- SeaweedFS (Included in Docker Compose)
 
 ## Setup
 
@@ -54,47 +58,69 @@ A Go backend service for digitizing InBody 270 body composition scans using AI (
    ```bash
    cp .env.example .env
    # Edit .env with your credentials
-   # Set S3_ENDPOINT=http://127.0.0.1:8333 for SeaweedFS
+   ```
+
+   Key environment variables:
    ```env
-# Server
-PORT=8080
-MAX_UPLOAD_SIZE_MB=5
+   # Server
+   PORT=8080
+   MAX_UPLOAD_SIZE_MB=5
 
-# MongoDB
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DATABASE=homgym
+   # MongoDB
+   MONGODB_URI=mongodb://localhost:27017
+   MONGODB_DATABASE=homgym
 
-# Redis
-REDIS_ADDR=localhost:6379
+   # Redis
+   REDIS_ADDR=localhost:6379
 
-# Firebase (from your service account JSON)
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_PRIVATE_KEY=<base64 encoded private key>
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
+   # Firebase (from your service account JSON)
+   FIREBASE_PROJECT_ID=your-project-id
+   FIREBASE_PRIVATE_KEY=<base64 encoded private key>
+   FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
 
-# OpenRouter
-OPENROUTER_API_KEY=your_api_key
-OPENROUTER_MODEL=google/gemini-1.5-pro
-```
+   # OpenRouter
+   OPENROUTER_API_KEY=your_api_key
+   OPENROUTER_MODEL=google/gemini-2.0-flash-001
 
-**Note**: To base64 encode your Firebase private key:
-```bash
-echo -n "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" | base64
-```
+   # S3 (SeaweedFS)
+   S3_ENDPOINT=http://127.0.0.1:8333
+   S3_REGION=us-east-1
+   S3_BUCKET=inbody-scans
+   ```
 
-### 3. Start Dependencies
+   **Note**: To base64 encode your Firebase private key:
+   ```bash
+   echo -n "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" | base64
+   ```
 
-```bash
-docker-compose up -d
-```
+3. **Start Infrastructure**
+   ```bash
+   docker-compose up -d
+   ```
 
-### 4. Run the Application
+   This starts:
+   - **MongoDB** on port `27017`
+   - **Redis** on port `6379`
+   - **SeaweedFS**:
+     - S3 API on port `8333`
+     - Volume Server on port `8334`
+     - Filer UI on port `8899` ([http://localhost:8899](http://localhost:8899))
 
-```bash
-go run cmd/main.go
-```
+4. **Run the Application**
+   ```bash
+   go run cmd/main.go
+   ```
 
-The server will start on `http://localhost:8080`
+   Expected startup logs:
+   ```
+   ✓ Firebase initialized
+   ✓ MongoDB connected
+   ✓ Redis connected
+   ✓ SeaweedFS S3 repository initialized
+   ✓ Services initialized
+   ✓ Handlers initialized
+   🚀 Server starting on port 8080
+   ```
 
 ## API Endpoints
 
@@ -145,9 +171,10 @@ Content-Type: multipart/form-data
 
 ## Cost Optimization
 
-The service uses **Gemini 1.5 Pro** which is the most cost-effective vision model on OpenRouter:
-- Input: $1.25 per million tokens (~5x cheaper than Claude)
-- Output: $2.50 per million tokens (~12x cheaper than Claude)
+The service uses **Gemini 2.0 Flash** (via OpenRouter) for optimal cost and performance:
+- Extremely fast inference
+- Low cost per request
+- Excellent accuracy for structured data extraction
 
 ## Testing
 
@@ -185,6 +212,54 @@ This project follows **Clean Architecture** principles:
 5. **Middleware Layer** (`internal/middleware/`): Cross-cutting concerns (auth)
 
 Dependencies flow inward: Handlers → Services → Repositories → Domain
+
+## Infrastructure
+
+### Docker Services
+
+| Service | Port | Purpose |
+|---------|------|----------|
+| MongoDB | 27017 | NoSQL database for metadata |
+| Redis | 6379 | Cache layer for recent scans |
+| SeaweedFS S3 | 8333 | S3-compatible object storage API |
+| SeaweedFS Volume | 8334 | Internal volume server |
+| SeaweedFS Filer UI | 8899 | Web UI to browse stored files |
+
+### SeaweedFS File Browser
+
+Access the SeaweedFS UI at [http://localhost:8899](http://localhost:8899) to browse uploaded scan images.
+Navigate to `/buckets/inbody-scans/` to see your files.
+
+## Troubleshooting
+
+### SeaweedFS Connection Issues
+
+If you see `connection reset` errors:
+
+1. **Use IPv4 explicitly** in `.env`:
+   ```bash
+   S3_ENDPOINT=http://127.0.0.1:8333  # Not localhost
+   ```
+
+2. **Verify containers are running**:
+   ```bash
+   docker ps
+   ```
+
+3. **Check SeaweedFS logs**:
+   ```bash
+   docker logs metamorph-seaweedfs-1
+   ```
+
+4. **Restart infrastructure**:
+   ```bash
+   docker-compose down && docker-compose up -d
+   ```
+
+### Port Conflicts
+
+If ports are already in use, update `docker-compose.yaml` to remap:
+- Filer UI is on `8899` (was `8888` to avoid Jupyter conflict)
 
 ## License
 
