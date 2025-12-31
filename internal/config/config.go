@@ -16,6 +16,7 @@ type Config struct {
 	Firebase   FirebaseConfig
 	OpenRouter OpenRouterConfig
 	S3         S3Config
+	JWT        JWTConfig
 }
 
 // ServerConfig holds HTTP server configuration
@@ -55,6 +56,11 @@ type OpenRouterConfig struct {
 	Model  string
 }
 
+// JWTConfig holds JWT token configuration
+type JWTConfig struct {
+	Secret string
+}
+
 // Load reads configuration from environment variables
 // It attempts to load from .env file first, then falls back to system env vars
 func Load() (*Config, error) {
@@ -87,6 +93,9 @@ func Load() (*Config, error) {
 			Endpoint: getEnv("S3_ENDPOINT", "http://localhost:8333"),
 			Region:   getEnv("S3_REGION", "us-east-1"),
 			Bucket:   getEnv("S3_BUCKET", "inbody-scans"),
+		},
+		JWT: JWTConfig{
+			Secret: getEnv("JWT_SECRET", "metamorph-dev-secret-change-in-production"),
 		},
 	}
 

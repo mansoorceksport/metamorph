@@ -1,0 +1,1046 @@
+openapi: 3.0.3
+info:
+  title: Metamorph API
+  description: |
+    # HOM Gym Digitizer & SaaS Platform
+
+    Complete API for fitness tracking, body composition analysis, and gym management.
+
+    ## Authorization & Multi-Tenancy
+    All endpoints are organized by role-based namespaces:
+
+    - **Member API** (`/v1/me/*`) - Personal data access (requires `member` role)
+    - **Pro API** (`/v1/pro/*`) - Client management for coaches (requires `coach` or `tenant_admin` role)
+    - **Tenant-Admin API** (`/v1/tenant-admin/*`) - Gym management within tenant (requires `tenant_admin` role)
+    - **Platform API** (`/v1/platform/*`) - Platform-wide operations (requires `super_admin` role)
+
+    **Tenant Isolation:** Most data is automatically scoped to your tenant. Cross-tenant access is blocked.
+
+    **Multi-Role Support:** Users can have multiple roles (e.g., both `member` and `coach`).
+
+  version: 2.1.0
+  contact:
+    name: Metamorph API Support
+    email: support@homgym.app
+  license:
+    name: Copyright © 2025 HOM Gym
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.homgym.app
+    description: Production
+
+tags:
+  - name: Auth
+    description: Authentication and JWT token generation
+  - name: Member API
+    description: Personal scans and analytics (requires 'member' role)
+  - name: Pro API
+    description: Client management and coaching tools (requires 'coach' or 'tenant_admin' role)
+  - name: Platform API
+    description: Platform-wide tenant, user, and branch management (requires 'super_admin' role - Metamorph only)
+  - name: Tenant-Admin API
+    description: Gym management within specific tenant (requires 'tenant_admin' role)
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ===========================================
+  # AUTH API
+  # ===========================================
+  /v1/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login or register user
+      description: |
+        Authenticate with Firebase token and get Metamorph JWT.
+
+        test@homgym.app / 123456
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requested_role
+              properties:
+                requested_role:
+                  type: string
+                  enum: [member, coach, tenant_admin, super_admin]
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: Firebase ID token (Bearer <token>)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+                  token:
+                    type: string
+                  is_new_user:
+                    type: boolean
+
+  # ===========================================
+  # MEMBER API - /v1/me/*
+  # ===========================================
+  /v1/me/join-tenant:
+    post:
+      tags:
+        - Member API
+      summary: Join a tenant using join code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - join_code
+              properties:
+                join_code:
+                  type: string
+      responses:
+        "200":
+          description: Successfully joined tenant
+
+  /v1/me/join-branch:
+    post:
+      tags:
+        - Member API
+      summary: Join a branch using join code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - join_code
+              properties:
+                join_code:
+                  type: string
+      responses:
+        "200":
+          description: Successfully joined branch
+
+  /v1/me/scans/digitize:
+    post:
+      tags:
+        - Member API
+      summary: Digitize InBody scan from image
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                test_date:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: Scan digitized successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InBodyRecord"
+
+  /v1/me/scans:
+    get:
+      tags:
+        - Member API
+      summary: List personal scans
+      responses:
+        "200":
+          description: List of scans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InBodyRecord"
+
+  /v1/me/scans/{id}:
+    get:
+      tags:
+        - Member API
+      summary: Get scan details
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InBodyRecord"
+
+    patch:
+      tags:
+        - Member API
+      summary: Update scan metrics
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Partial update of metrics
+      responses:
+        "200":
+          description: Scan updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InBodyRecord"
+
+    delete:
+      tags:
+        - Member API
+      summary: Delete scan
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Scan deleted
+
+  /v1/me/analytics/history:
+    get:
+      tags:
+        - Member API
+      summary: Get analytics history
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Analytics history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsHistory"
+
+  /v1/me/analytics/recap:
+    get:
+      tags:
+        - Member API
+      summary: Get AI trend recap
+      responses:
+        "200":
+          description: Trend recap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrendSummary"
+
+  # ===========================================
+  # PRO API - /v1/pro/*
+  # ===========================================
+  /v1/pro/clients:
+    get:
+      tags:
+        - Pro API
+      summary: List assigned clients
+      responses:
+        "200":
+          description: List of clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /v1/pro/clients/{id}/history:
+    get:
+      tags:
+        - Pro API
+      summary: Get client's analytics history
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Client analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsHistory"
+
+  /v1/pro/assignments:
+    get:
+      tags:
+        - Pro API
+      summary: List coach assignments
+      parameters:
+        - name: coach_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CoachAssignment"
+
+    post:
+      tags:
+        - Pro API
+      summary: Assign member to coach (Self-assign)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - member_id
+              properties:
+                member_id:
+                  type: string
+      responses:
+        "201":
+          description: Assignment created
+
+  /v1/pro/assignments/{id}:
+    delete:
+      tags:
+        - Pro API
+      summary: Remove assignment
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Assignment removed
+
+  # ===========================================
+  # PLATFORM API - /v1/platform/*
+  # ===========================================
+  /v1/platform/tenants:
+    post:
+      tags:
+        - Platform API
+      summary: Create new tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Tenant"
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+
+  /v1/platform/tenants/{id}:
+    get:
+      tags:
+        - Platform API
+      summary: Get tenant by ID
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+
+    put:
+      tags:
+        - Platform API
+      summary: Update tenant
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Tenant"
+      responses:
+        "200":
+          description: Tenant updated
+
+  /v1/platform/users:
+    get:
+      tags:
+        - Platform API
+      summary: List all users (platform-wide)
+      responses:
+        "200":
+          description: List of all users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+    post:
+      tags:
+        - Platform API
+      summary: Create user (platform-level)
+      description: |
+        Platform Owner creates users across any tenant.
+
+        **Email-based provisioning**: `firebase_uid` is optional - users can be pre-provisioned with just email.
+        The Firebase account will auto-link when they first log in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "201":
+          description: User created
+
+  /v1/platform/users/{id}:
+    get:
+      tags:
+        - Platform API
+      summary: Get user details
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+    put:
+      tags:
+        - Platform API
+      summary: Update user
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: User updated
+
+    delete:
+      tags:
+        - Platform API
+      summary: Delete user
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: User deleted
+
+  /v1/platform/branches:
+    get:
+      tags:
+        - Platform API
+      summary: List all branches (platform-wide)
+      responses:
+        "200":
+          description: List of all branches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Branch"
+
+    post:
+      tags:
+        - Platform API
+      summary: Create branch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Branch"
+      responses:
+        "201":
+          description: Branch created
+
+  /v1/platform/branches/{id}:
+    get:
+      tags:
+        - Platform API
+      summary: Get branch details
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Branch details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+
+    put:
+      tags:
+        - Platform API
+      summary: Update branch
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Branch"
+      responses:
+        "200":
+          description: Branch updated
+
+    delete:
+      tags:
+        - Platform API
+      summary: Delete branch
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Branch deleted
+
+  # ===========================================
+  # TENANT-ADMIN API - /v1/tenant-admin/*
+  # ===========================================
+  /v1/tenant-admin/users:
+    get:
+      tags:
+        - Tenant-Admin API
+      summary: List users in tenant
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+    post:
+      tags:
+        - Tenant-Admin API
+      summary: Create user in tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "201":
+          description: User created
+
+  /v1/tenant-admin/users/{id}:
+    get:
+      tags:
+        - Tenant-Admin API
+      summary: Get user details
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+    put:
+      tags:
+        - Tenant-Admin API
+      summary: Update user
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: User updated
+
+    delete:
+      tags:
+        - Tenant-Admin API
+      summary: Delete user
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: User deleted
+
+  /v1/tenant-admin/coaches:
+    get:
+      tags:
+        - Tenant-Admin API
+      summary: List coaches in tenant
+      responses:
+        "200":
+          description: List of coaches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+    post:
+      tags:
+        - Tenant-Admin API
+      summary: Create coach in tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "201":
+          description: Coach created
+
+  /v1/tenant-admin/coaches/{id}:
+    get:
+      tags:
+        - Tenant-Admin API
+      summary: Get coach details
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Coach details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+    put:
+      tags:
+        - Tenant-Admin API
+      summary: Update coach
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: Coach updated
+
+    delete:
+      tags:
+        - Tenant-Admin API
+      summary: Delete coach
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Coach deleted
+
+  /v1/tenant-admin/branches:
+    get:
+      tags:
+        - Tenant-Admin API
+      summary: List branches in tenant
+      responses:
+        "200":
+          description: List of branches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Branch"
+
+    post:
+      tags:
+        - Tenant-Admin API
+      summary: Create branch in tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Branch"
+      responses:
+        "201":
+          description: Branch created
+
+  /v1/tenant-admin/branches/{id}:
+    get:
+      tags:
+        - Tenant-Admin API
+      summary: Get branch details
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Branch details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+
+    put:
+      tags:
+        - Tenant-Admin API
+      summary: Update branch
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Branch"
+      responses:
+        "200":
+          description: Branch updated
+
+    delete:
+      tags:
+        - Tenant-Admin API
+      summary: Delete branch
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Branch deleted
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Metamorph JWT token obtained from `/v1/auth/login`.
+
+        Include in requests as: `Authorization: Bearer <token>`
+
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Resource ID
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        firebase_uid:
+          type: string
+          description: Optional - auto-linked on first login if omitted during creation
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [member, coach, super_admin, tenant_admin]
+          description: User roles (can have multiple)
+        tenant_id:
+          type: string
+        home_branch_id:
+          type: string
+        branch_access:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        join_code:
+          type: string
+          description: Unique code for users to join tenant
+        logo_url:
+          type: string
+        ai_settings:
+          type: object
+          properties:
+            tone:
+              type: string
+            style:
+              type: string
+            persona:
+              type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Branch:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        name:
+          type: string
+        join_code:
+          type: string
+          description: Unique code for members to join branch
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CoachAssignment:
+      type: object
+      properties:
+        id:
+          type: string
+        coach_id:
+          type: string
+        member_id:
+          type: string
+        tenant_id:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+
+    InBodyRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        test_date_time:
+          type: string
+          format: date-time
+        weight:
+          type: number
+        smm:
+          type: number
+          description: Skeletal Muscle Mass
+        body_fat_mass:
+          type: number
+        bmi:
+          type: number
+        pbf:
+          type: number
+          description: Percent Body Fat
+        bmr:
+          type: integer
+          description: Basal Metabolic Rate
+        visceral_fat:
+          type: integer
+        whr:
+          type: number
+          description: Waist-Hip Ratio
+        inbody_score:
+          type: number
+        obesity_degree:
+          type: number
+        fat_free_mass:
+          type: number
+        recommended_calorie_intake:
+          type: integer
+        target_weight:
+          type: number
+        weight_control:
+          type: number
+        fat_control:
+          type: number
+        muscle_control:
+          type: number
+        segmental_lean:
+          $ref: "#/components/schemas/SegmentalData"
+        segmental_fat:
+          $ref: "#/components/schemas/SegmentalData"
+        analysis:
+          $ref: "#/components/schemas/BodyAnalysis"
+        metadata:
+          type: object
+          properties:
+            image_url:
+              type: string
+            processed_at:
+              type: string
+              format: date-time
+
+    SegmentalData:
+      type: object
+      properties:
+        right_arm:
+          $ref: "#/components/schemas/SegmentMetrics"
+        left_arm:
+          $ref: "#/components/schemas/SegmentMetrics"
+        trunk:
+          $ref: "#/components/schemas/SegmentMetrics"
+        right_leg:
+          $ref: "#/components/schemas/SegmentMetrics"
+        left_leg:
+          $ref: "#/components/schemas/SegmentMetrics"
+
+    SegmentMetrics:
+      type: object
+      properties:
+        mass:
+          type: number
+        percentage:
+          type: number
+
+    BodyAnalysis:
+      type: object
+      properties:
+        summary:
+          type: string
+        positive_feedback:
+          type: array
+          items:
+            type: string
+        improvements:
+          type: array
+          items:
+            type: string
+        advice:
+          type: array
+          items:
+            type: string
+
+    AnalyticsHistory:
+      type: object
+      properties:
+        progress:
+          $ref: "#/components/schemas/ProgressSummary"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendData"
+
+    ProgressSummary:
+      type: object
+      properties:
+        total_scans:
+          type: integer
+        first_scan_date:
+          type: string
+        latest_scan_date:
+          type: string
+        weight_change:
+          type: number
+        muscle_gained:
+          type: number
+        body_fat_change:
+          type: number
+
+    TrendData:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date-time
+        core_metrics:
+          type: object
+          properties:
+            weight:
+              type: number
+            smm:
+              type: number
+            pbf:
+              type: number
+        extended_metrics:
+          type: object
+          properties:
+            inbody_score:
+              type: number
+            obesity_degree:
+              type: number
+            fat_free_mass:
+              type: number
+        segmental_trends:
+          type: object
+          properties:
+            lean:
+              type: object
+            fat:
+              type: object
+
+    TrendSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        summary_text:
+          type: string
+        last_generated_at:
+          type: string
+          format: date-time
+        included_scan_ids:
+          type: array
+          items:
+            type: string

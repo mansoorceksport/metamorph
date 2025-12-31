@@ -1,0 +1,825 @@
+openapi: 3.0.3
+info:
+  title: Metamorph API
+  version: 2.0.0
+  description: |
+    Multi-tenant SaaS platform for InBody scan digitization with comprehensive role-based access control.
+
+    ## Authentication Flow
+    1. Obtain Firebase ID token from your authentication provider
+    2. Exchange for Metamorph JWT: `POST /v1/auth/login` with Firebase token
+    3. Use Metamorph JWT for all subsequent API calls
+
+    ## Authorization & Multi-Tenancy
+    All endpoints are organized by role-based namespaces:
+
+    - **Member API** (`/v1/me/*`) - Personal data access (requires `member` role)
+    - **Pro API** (`/v1/pro/*`) - Client management for coaches (requires `coach` role)
+    - **Admin API** (`/v1/admin/*`) - Tenant administration (requires `admin` role)
+
+    **Tenant Isolation:** All data is automatically scoped to your tenant. Cross-tenant access is blocked.
+
+    **Multi-Role Support:** Users can have multiple roles (e.g., both `member` and `coach`).
+
+  contact:
+    name: Metamorph API Support
+    email: support@homgym.app
+  license:
+    name: Copyright © 2025 HOM Gym
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.homgym.app
+    description: Production
+
+tags:
+  - name: Auth
+    description: Authentication and JWT token generation
+  - name: Member API
+    description: Personal scans and analytics (requires 'member' role)
+  - name: Pro API
+    description: Client management and coaching tools (requires 'coach' role)
+  - name: Admin API
+    description: Tenant, user, and platform administration (requires 'admin' role)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - Auth
+      summary: Health check
+      description: Check if the service is healthy and running
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: metamorph-api
+
+  /v1/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login or register with Firebase token
+      description: |
+        Exchange Firebase ID token for Metamorph JWT with role assignment.
+
+        **Behavior:**
+        - Existing user: Adds requested role if not already present
+        - New user: Creates account with requested role
+        - Coach role: Auto-creates tenant
+
+        **Multi-role:** Users can accumulate multiple roles over time.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requested_role
+              properties:
+                requested_role:
+                  type: string
+                  enum: [member, coach, admin]
+                  description: Role to assign to the user
+            example:
+              requested_role: member
+      responses:
+        "200":
+          description: Successfully authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Metamorph JWT token (valid for 24 hours)
+                  is_new_user:
+                    type: boolean
+                  message:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      roles:
+                        type: array
+                        items:
+                          type: string
+                      tenant_id:
+                        type: string
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                is_new_user: false
+                message: Welcome back!
+                user:
+                  id: "6950e2fbbce087bb496bf471"
+                  roles: ["member", "coach"]
+                  tenant_id: "6950e2fbbce087bb496bf470"
+        "400":
+          description: Invalid role requested
+        "401":
+          description: Invalid Firebase token
+
+  # ==========================================
+  # MEMBER API - /v1/me/*
+  # ==========================================
+
+  /v1/me/scans/digitize:
+    post:
+      tags:
+        - Member API
+      summary: Digitize an InBody scan image
+      description: Upload and process an InBody scan image with AI extraction
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: InBody scan image (PNG, JPEG)
+      responses:
+        "200":
+          description: Scan digitized successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InBodyRecord"
+        "400":
+          description: Invalid image format
+        "401":
+          description: Unauthorized
+
+  /v1/me/join-tenant:
+    post:
+      tags:
+        - Member API
+      summary: Join a tenant
+      description: Join a gym/tenant using a unique join code. Updates the user's tenant association.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - join_code
+              properties:
+                join_code:
+                  type: string
+                  example: "HOM-123"
+      responses:
+        "200":
+          description: Successfully joined tenant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  tenant:
+                    $ref: "#/components/schemas/Tenant"
+                  tenant_id:
+                    type: string
+        "400":
+          description: Invalid code or missing body
+        "404":
+          description: Tenant not found
+        "401":
+          description: Unauthorized
+
+  /v1/me/scans:
+    get:
+      tags:
+        - Member API
+      summary: List my scans
+      description: Retrieve all InBody scans for the authenticated user
+      responses:
+        "200":
+          description: List of scans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InBodyRecord"
+
+  /v1/me/scans/{id}:
+    get:
+      tags:
+        - Member API
+      summary: Get scan by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InBodyRecord"
+        "404":
+          description: Scan not found
+
+    patch:
+      tags:
+        - Member API
+      summary: Update scan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+      responses:
+        "200":
+          description: Scan updated
+
+    delete:
+      tags:
+        - Member API
+      summary: Delete scan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Scan deleted
+
+  /v1/me/analytics/history:
+    get:
+      tags:
+        - Member API
+      summary: Get analytics history
+      description: Time-series data for charting progress
+      responses:
+        "200":
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trends:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrendData"
+
+  /v1/me/analytics/recap:
+    get:
+      tags:
+        - Member API
+      summary: Get progress recap
+      description: Summary of recent progress and trends
+      responses:
+        "200":
+          description: Progress recap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressSummary"
+
+  # ==========================================
+  # PRO API - /v1/pro/*
+  # ==========================================
+
+  /v1/pro/clients:
+    get:
+      tags:
+        - Pro API
+      summary: List assigned clients
+      description: Get all members assigned to this coach
+      responses:
+        "200":
+          description: List of assigned clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /v1/pro/clients/{id}/history:
+    get:
+      tags:
+        - Pro API
+      summary: Get client scan history
+      description: View scan history for an assigned client
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Client scan history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InBodyRecord"
+        "403":
+          description: Client not assigned to this coach
+
+  /v1/pro/assignments:
+    get:
+      tags:
+        - Pro API
+      summary: List coach assignments
+      parameters:
+        - name: coach_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CoachAssignment"
+
+    post:
+      tags:
+        - Pro API
+      summary: Create assignment
+      description: Assign a member to a coach
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - coach_id
+                - member_id
+              properties:
+                coach_id:
+                  type: string
+                member_id:
+                  type: string
+      responses:
+        "201":
+          description: Assignment created
+
+  /v1/pro/assignments/{id}:
+    delete:
+      tags:
+        - Pro API
+      summary: Remove assignment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Assignment removed
+
+  # ==========================================
+  # ADMIN API - /v1/admin/*
+  # ==========================================
+
+  /v1/admin/tenants:
+    post:
+      tags:
+        - Admin API
+      summary: Create tenant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Tenant"
+      responses:
+        "201":
+          description: Tenant created
+
+  /v1/admin/tenants/{id}:
+    get:
+      tags:
+        - Admin API
+      summary: Get tenant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+
+    put:
+      tags:
+        - Admin API
+      summary: Update tenant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Tenant"
+      responses:
+        "200":
+          description: Tenant updated
+
+  /v1/admin/users:
+    get:
+      tags:
+        - Admin API
+      summary: List all users
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+    post:
+      tags:
+        - Admin API
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "201":
+          description: User created
+
+  /v1/admin/users/{id}:
+    get:
+      tags:
+        - Admin API
+      summary: Get user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+    put:
+      tags:
+        - Admin API
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: User updated
+
+    delete:
+      tags:
+        - Admin API
+      summary: Delete user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: User deleted
+
+  /v1/admin/coaches:
+    get:
+      tags:
+        - Admin API
+      summary: List all coaches
+      description: Get all users with coach role
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+          description: Filter by tenant
+      responses:
+        "200":
+          description: List of coaches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+    post:
+      tags:
+        - Admin API
+      summary: Create coach
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - firebase_uid
+                - email
+                - name
+              properties:
+                firebase_uid:
+                  type: string
+                email:
+                  type: string
+                name:
+                  type: string
+                tenant_id:
+                  type: string
+      responses:
+        "201":
+          description: Coach created
+
+  /v1/admin/coaches/{id}:
+    get:
+      tags:
+        - Admin API
+      summary: Get coach
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Coach details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+    put:
+      tags:
+        - Admin API
+      summary: Update coach
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+      responses:
+        "200":
+          description: Coach updated
+
+    delete:
+      tags:
+        - Admin API
+      summary: Delete coach
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Coach deleted
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Metamorph JWT token obtained from `/v1/auth/login`.
+
+        Include in requests as: `Authorization: Bearer <token>`
+
+  schemas:
+    User:
+      type: object
+      description: Unified user model with multi-role support
+      properties:
+        id:
+          type: string
+        firebase_uid:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [member, coach, admin]
+          description: User roles (can have multiple)
+        tenant_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        join_code:
+          type: string
+          description: Unique code for members to join
+        logo_url:
+          type: string
+        ai_settings:
+          $ref: "#/components/schemas/AISettings"
+        created_at:
+          type: string
+          format: date-time
+
+    AISettings:
+      type: object
+      properties:
+        tone:
+          type: string
+          example: Encouraging
+        style:
+          type: string
+          example: Detailed
+        persona:
+          type: string
+          example: Supportive Head Coach
+
+    InBodyRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        test_date_time:
+          type: string
+          format: date-time
+        weight:
+          type: number
+        muscle_mass:
+          type: number
+        body_fat_mass:
+          type: number
+        percent_body_fat:
+          type: number
+        ai_analysis:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CoachAssignment:
+      type: object
+      properties:
+        id:
+          type: string
+        coach_id:
+          type: string
+        member_id:
+          type: string
+        tenant_id:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+
+    TrendData:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        weight:
+          type: number
+        muscle_mass:
+          type: number
+        body_fat_mass:
+          type: number
+
+    ProgressSummary:
+      type: object
+      properties:
+        latest_scan:
+          $ref: "#/components/schemas/InBodyRecord"
+        trends:
+          type: object
+        insights:
+          type: array
+          items:
+            type: string
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - Invalid or missing token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: Invalid or expired token
+
+    Forbidden:
+      description: Forbidden - Insufficient permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: Insufficient permissions
+              required_roles:
+                type: array
+                items:
+                  type: string

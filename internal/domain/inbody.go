@@ -3,13 +3,15 @@ package domain
 import (
 	"context"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // InBodyRecord represents a digitized InBody scan result
 type InBodyRecord struct {
-	ID           string    `bson:"_id,omitempty" json:"id"`
-	UserID       string    `bson:"user_id" json:"user_id"` // From Firebase JWT
-	TestDateTime time.Time `bson:"test_date_time" json:"test_date_time"`
+	ID           string             `bson:"_id,omitempty" json:"id"`
+	UserID       primitive.ObjectID `bson:"user_id" json:"user_id"` // Stored as ObjectID
+	TestDateTime time.Time          `bson:"test_date_time" json:"test_date_time"`
 
 	// Core Metrics
 	Weight      float64 `bson:"weight" json:"weight"`
@@ -22,6 +24,18 @@ type InBodyRecord struct {
 	BMR              int     `bson:"bmr" json:"bmr"` // Basal Metabolic Rate
 	VisceralFatLevel int     `bson:"visceral_fat" json:"visceral_fat"`
 	WaistHipRatio    float64 `bson:"whr" json:"whr"`
+	InBodyScore      float64 `bson:"inbody_score" json:"inbody_score"`
+	ObesityDegree    float64 `bson:"obesity_degree" json:"obesity_degree"`
+
+	// Body Composition Analysis
+	FatFreeMass float64 `bson:"fat_free_mass" json:"fat_free_mass"`
+
+	// Control Guide
+	RecommendedCalorieIntake int     `bson:"recommended_calorie_intake" json:"recommended_calorie_intake"`
+	TargetWeight             float64 `bson:"target_weight" json:"target_weight"`
+	WeightControl            float64 `bson:"weight_control" json:"weight_control"`
+	FatControl               float64 `bson:"fat_control" json:"fat_control"`
+	MuscleControl            float64 `bson:"muscle_control" json:"muscle_control"`
 
 	// Segmental Body Composition (V2) - Optional for backward compatibility
 	SegmentalLean *SegmentalData `bson:"segmental_lean,omitempty" json:"segmental_lean,omitempty"`
@@ -72,6 +86,16 @@ type InBodyMetrics struct {
 	WaistHipRatio    float64   `json:"whr"`
 	TestDate         time.Time `json:"test_date"`
 
+	// New Metrics
+	InBodyScore              float64 `json:"inbody_score"`
+	ObesityDegree            float64 `json:"obesity_degree"`
+	FatFreeMass              float64 `json:"fat_free_mass"`
+	RecommendedCalorieIntake int     `json:"recommended_calorie_intake"`
+	TargetWeight             float64 `json:"target_weight"`
+	WeightControl            float64 `json:"weight_control"`
+	FatControl               float64 `json:"fat_control"`
+	MuscleControl            float64 `json:"muscle_control"`
+
 	// V2 Fields (Optional for backward compatibility)
 	SegmentalLean *SegmentalData `json:"segmental_lean,omitempty"`
 	SegmentalFat  *SegmentalData `json:"segmental_fat,omitempty"`
@@ -80,11 +104,11 @@ type InBodyMetrics struct {
 
 // TrendSummary represents an AI-generated trend recap for a user
 type TrendSummary struct {
-	ID              string    `bson:"_id,omitempty" json:"id"`
-	UserID          string    `bson:"user_id" json:"user_id"`
-	SummaryText     string    `bson:"summary_text" json:"summary_text"`
-	LastGeneratedAt time.Time `bson:"last_generated_at" json:"last_generated_at"`
-	IncludedScanIDs []string  `bson:"included_scan_ids" json:"included_scan_ids"`
+	ID              string             `bson:"_id,omitempty" json:"id"`
+	UserID          primitive.ObjectID `bson:"user_id" json:"user_id"`
+	SummaryText     string             `bson:"summary_text" json:"summary_text"`
+	LastGeneratedAt time.Time          `bson:"last_generated_at" json:"last_generated_at"`
+	IncludedScanIDs []string           `bson:"included_scan_ids" json:"included_scan_ids"`
 }
 
 // InBodyRepository defines the interface for InBodyRecord persistence
@@ -140,14 +164,17 @@ type CacheRepository interface {
 	// GetTrendRecap retrieves the cached trend recap for a user
 	// Returns nil if not found or expired
 	GetTrendRecap(ctx context.Context, userID string) (*TrendSummary, error)
+
+	// InvalidateTrendRecap removes cached trend recap for a user
+	InvalidateTrendRecap(ctx context.Context, userID string) error
 }
 
 // DigitizerService defines the interface for AI-based metric extraction
 // Implementations should handle OpenRouter API communication
 type DigitizerService interface {
 	// ExtractMetrics uses AI to extract InBody metrics from an image
-	// Analyzes only the current image without historical context
-	ExtractMetrics(ctx context.Context, imageData []byte) (*InBodyMetrics, error)
+	// userID is required for SaaS context (fetching tenant persona)
+	ExtractMetrics(ctx context.Context, userID string, imageData []byte) (*InBodyMetrics, error)
 }
 
 // ScanService defines the interface for business logic around scan processing

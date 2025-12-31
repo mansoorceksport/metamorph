@@ -1,12 +1,21 @@
 package domain
 
-import "time"
+import (
+	"context"
+	"time"
+)
+
+// AnalyticsService defines methods for retrieving analytics data
+type AnalyticsService interface {
+	GetHistory(ctx context.Context, userID string, limit int) (*AnalyticsHistory, error)
+}
 
 // TrendData represents a single data point in the analytics history
 type TrendData struct {
-	Date            time.Time       `json:"date"`
-	CoreMetrics     CoreTrendMetric `json:"core_metrics"`
-	SegmentalTrends *SegmentalTrend `json:"segmental_trends,omitempty"`
+	Date            time.Time        `json:"date"`
+	CoreMetrics     CoreTrendMetric  `json:"core_metrics"`
+	ExtendedMetrics *ExtendedMetrics `json:"extended_metrics,omitempty"`
+	SegmentalTrends *SegmentalTrend  `json:"segmental_trends,omitempty"`
 }
 
 // CoreTrendMetric represents the key metrics for charting
@@ -14,6 +23,18 @@ type CoreTrendMetric struct {
 	Weight float64 `json:"weight"` // kg
 	SMM    float64 `json:"smm"`    // kg - Skeletal Muscle Mass
 	PBF    float64 `json:"pbf"`    // % - Percent Body Fat
+}
+
+// ExtendedMetrics represents the newly added detailed metrics
+type ExtendedMetrics struct {
+	InBodyScore              float64 `json:"inbody_score"`
+	ObesityDegree            float64 `json:"obesity_degree"`
+	FatFreeMass              float64 `json:"fat_free_mass"`
+	RecommendedCalorieIntake int     `json:"recommended_calorie_intake"`
+	TargetWeight             float64 `json:"target_weight"`
+	WeightControl            float64 `json:"weight_control"`
+	FatControl               float64 `json:"fat_control"`
+	MuscleControl            float64 `json:"muscle_control"`
 }
 
 // SegmentalTrend represents segmental data for trend analysis

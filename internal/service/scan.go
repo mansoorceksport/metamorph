@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 const (
@@ -57,23 +58,36 @@ func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageD
 	}
 
 	// Step 1: Extract metrics using AI (analyzing current scan only)
-	metrics, err := s.digitizer.ExtractMetrics(ctx, imageData)
+	metrics, err := s.digitizer.ExtractMetrics(ctx, userID, imageData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract metrics: %w", err)
 	}
 
+	userObjectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+
 	// Step 2: Build InBodyRecord with V1 fields
 	record := &domain.InBodyRecord{
-		UserID:           userID,
-		TestDateTime:     metrics.TestDate,
-		Weight:           metrics.Weight,
-		SMM:              metrics.SMM,
-		BodyFatMass:      metrics.BodyFatMass,
-		BMI:              metrics.BMI,
-		PBF:              metrics.PBF,
-		BMR:              metrics.BMR,
-		VisceralFatLevel: metrics.VisceralFatLevel,
-		WaistHipRatio:    metrics.WaistHipRatio,
+		UserID:                   userObjectID,
+		TestDateTime:             metrics.TestDate,
+		Weight:                   metrics.Weight,
+		SMM:                      metrics.SMM,
+		BodyFatMass:              metrics.BodyFatMass,
+		BMI:                      metrics.BMI,
+		PBF:                      metrics.PBF,
+		BMR:                      metrics.BMR,
+		VisceralFatLevel:         metrics.VisceralFatLevel,
+		WaistHipRatio:            metrics.WaistHipRatio,
+		InBodyScore:              metrics.InBodyScore,
+		ObesityDegree:            metrics.ObesityDegree,
+		FatFreeMass:              metrics.FatFreeMass,
+		RecommendedCalorieIntake: metrics.RecommendedCalorieIntake,
+		TargetWeight:             metrics.TargetWeight,
+		WeightControl:            metrics.WeightControl,
+		FatControl:               metrics.FatControl,
+		MuscleControl:            metrics.MuscleControl,
 	}
 
 	// Step 2.5: Map V2 fields if present (backward compatible)
@@ -102,6 +116,11 @@ func (s *ScanServiceImpl) ProcessScan(ctx context.Context, userID string, imageD
 		fmt.Printf("Warning: failed to cache latest scan: %v\n", err)
 	}
 
+	// Invalidate trend recap cache
+	if err := s.cache.InvalidateTrendRecap(ctx, userID); err != nil {
+		fmt.Printf("Warning: failed to invalidate trend recap cache: %v\n", err)
+	}
+
 	return record, nil
 }
 
@@ -118,7 +137,7 @@ func (s *ScanServiceImpl) GetScanByID(ctx context.Context, userID string, scanID
 	}
 
 	// Verify ownership
-	if record.UserID != userID {
+	if record.UserID.Hex() != userID {
 		return nil, domain.ErrForbidden
 	}
 
@@ -134,7 +153,7 @@ func (s *ScanServiceImpl) UpdateScan(ctx context.Context, userID string, scanID 
 	}
 
 	// Verify ownership
-	if record.UserID != userID {
+	if record.UserID.Hex() != userID {
 		return nil, domain.ErrForbidden
 	}
 
@@ -163,6 +182,30 @@ func (s *ScanServiceImpl) UpdateScan(ctx context.Context, userID string, scanID 
 	if whr, ok := updates["whr"].(float64); ok {
 		record.WaistHipRatio = whr
 	}
+	if score, ok := updates["inbody_score"].(float64); ok {
+		record.InBodyScore = score
+	}
+	if obesityDegree, ok := updates["obesity_degree"].(float64); ok {
+		record.ObesityDegree = obesityDegree
+	}
+	if ffm, ok := updates["fat_free_mass"].(float64); ok {
+		record.FatFreeMass = ffm
+	}
+	if calories, ok := updates["recommended_calorie_intake"].(float64); ok {
+		record.RecommendedCalorieIntake = int(calories)
+	}
+	if target, ok := updates["target_weight"].(float64); ok {
+		record.TargetWeight = target
+	}
+	if weightCtrl, ok := updates["weight_control"].(float64); ok {
+		record.WeightControl = weightCtrl
+	}
+	if fatCtrl, ok := updates["fat_control"].(float64); ok {
+		record.FatControl = fatCtrl
+	}
+	if muscleCtrl, ok := updates["muscle_control"].(float64); ok {
+		record.MuscleControl = muscleCtrl
+	}
 
 	// Update in database
 	if err := s.repository.Update(ctx, scanID, record); err != nil {
@@ -171,6 +214,7 @@ func (s *ScanServiceImpl) UpdateScan(ctx context.Context, userID string, scanID 
 
 	// Invalidate cache for this user
 	_ = s.cache.InvalidateUserCache(ctx, userID)
+	_ = s.cache.InvalidateTrendRecap(ctx, userID)
 
 	// Return updated record
 	return s.repository.FindByID(ctx, scanID)
@@ -185,7 +229,7 @@ func (s *ScanServiceImpl) DeleteScan(ctx context.Context, userID string, scanID 
 	}
 
 	// Verify ownership
-	if record.UserID != userID {
+	if record.UserID.Hex() != userID {
 		return domain.ErrForbidden
 	}
 
@@ -204,6 +248,7 @@ func (s *ScanServiceImpl) DeleteScan(ctx context.Context, userID string, scanID 
 
 	// Invalidate cache for this user
 	_ = s.cache.InvalidateUserCache(ctx, userID)
+	_ = s.cache.InvalidateTrendRecap(ctx, userID)
 
 	return nil
 }

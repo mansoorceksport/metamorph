@@ -1,621 +1,391 @@
 openapi: 3.0.3
 info:
-  title: HOM Gym - Digitizer Service API
-  description: |
-    AI-powered InBody scan digitization service with SeaweedFS storage and Firebase authentication.
-
-    ## Authentication
-    All endpoints (except `/health`) require Firebase JWT authentication.
-    Obtain a Firebase ID token from your client and include it in the `Authorization` header as `Bearer <token>`.
-
-    ## Features
-    - AI-powered metric extraction using Gemini 2.0 Flash
-    - Distributed object storage with SeaweedFS
-    - MongoDB metadata storage
-    - Redis caching (24h TTL)
-    - User ownership verification
-
+  title: Metamorph API
+  description: API for Metamorph Fitness Platform (SaaS)
   version: 1.0.0
-  contact:
-    name: mansoorceksport
-  license:
-    name: Copyright © 2025 mansoorceksport
-
 servers:
   - url: http://localhost:8080
-    description: Local development server
-
-tags:
-  - name: Health
-    description: Service health check
-  - name: Scans
-    description: InBody scan operations (CRUD)
-  - name: Analytics
-    description: Analytics and trend data for charting
-
-security:
-  - BearerAuth: []
-
-paths:
-  /health:
-    get:
-      tags:
-        - Health
-      summary: Health check endpoint
-      description: Returns the health status of the service
-      security: []
-      responses:
-        "200":
-          description: Service is healthy
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: healthy
-                  service:
-                    type: string
-                    example: hom-gym-digitizer
-
-  /v1/scans/digitize:
-    post:
-      tags:
-        - Scans
-      summary: Digitize an InBody scan image
-      description: |
-        Upload an InBody scan image for AI-powered metric extraction.
-        The image is stored in SeaweedFS and metrics are extracted using Gemini 2.0 Flash.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - image
-              properties:
-                image:
-                  type: string
-                  format: binary
-                  description: InBody scan image (JPEG/PNG, max 5MB)
-      responses:
-        "200":
-          description: Scan digitized successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ScanResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/scans:
-    get:
-      tags:
-        - Scans
-      summary: List all scans for authenticated user
-      description: Returns all InBody scans for the authenticated user, sorted by test date (newest first)
-      responses:
-        "200":
-          description: List of scans retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/InBodyRecord"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/scans/{id}:
-    get:
-      tags:
-        - Scans
-      summary: Get a single scan by ID
-      description: Returns a specific InBody scan. User must own the scan.
-      parameters:
-        - $ref: "#/components/parameters/ScanId"
-      responses:
-        "200":
-          description: Scan retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ScanResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-    patch:
-      tags:
-        - Scans
-      summary: Update scan metrics
-      description: |
-        Update specific metrics of an InBody scan (useful for correcting AI miscalculations).
-        User must own the scan. All fields are optional.
-      parameters:
-        - $ref: "#/components/parameters/ScanId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScanUpdateRequest"
-            example:
-              weight: 76.0
-              smm: 35.5
-              body_fat_mass: 12.5
-              pbf: 16.5
-              bmi: 22.6
-              bmr: 1660
-              visceral_fat: 7
-              whr: 0.84
-      responses:
-        "200":
-          description: Scan updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ScanResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-    delete:
-      tags:
-        - Scans
-      summary: Delete a scan
-      description: |
-        Permanently delete an InBody scan and its associated image from storage.
-        User must own the scan. This action cannot be undone.
-      parameters:
-        - $ref: "#/components/parameters/ScanId"
-      responses:
-        "200":
-          description: Scan deleted successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: scan deleted successfully
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/analytics/history:
-    get:
-      tags:
-        - Analytics
-      summary: Get analytics history for charting
-      description: |
-        Returns time-series data for the "Big Three" metrics (Weight, SMM, PBF) and segmental trends.
-        Includes progress summary showing total gains/losses from first to latest scan.
-      parameters:
-        - name: limit
-          in: query
-          description: Number of scans to retrieve (default 10, max 100)
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 10
-      responses:
-        "200":
-          description: Analytics history retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  data:
-                    $ref: "#/components/schemas/AnalyticsHistory"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/analytics/recap:
-    get:
-      tags:
-        - Analytics
-      summary: Get AI-generated trend recap
-      description: |
-        Returns a smart, AI-generated recap of the user's progress.
-        Uses a 3-tier caching strategy (Redis -> MongoDB -> AI Generation) with a 7-day TTL.
-      responses:
-        "200":
-          description: Trend recap retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  data:
-                    $ref: "#/components/schemas/TrendSummary"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
+    description: Local Development
 
 components:
   securitySchemes:
-    BearerAuth:
+    bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Firebase ID token
-
-  parameters:
-    ScanId:
-      name: id
-      in: path
-      required: true
-      description: MongoDB ObjectID of the scan
-      schema:
-        type: string
-        pattern: '^[a-f\d]{24}$'
-        example: 676a1b2c3d4e5f6g7h8i9j0k
 
   schemas:
-    InBodyRecord:
+    Exercise:
       type: object
       properties:
         id:
           type: string
-          description: MongoDB ObjectID
-          example: 676a1b2c3d4e5f6g7h8i9j0k
-        user_id:
+        name:
           type: string
-          description: Firebase user ID
-          example: firebase_user_uid_123
-        test_date_time:
+        muscle_group:
           type: string
-          format: date-time
-          description: Date and time of the InBody test
-          example: "2025-12-24T10:00:00Z"
-        weight:
-          type: number
-          format: double
-          description: Body weight in kg
-          example: 75.5
-        smm:
-          type: number
-          format: double
-          description: Skeletal Muscle Mass in kg
-          example: 35.2
-        body_fat_mass:
-          type: number
-          format: double
-          description: Body fat mass in kg
-          example: 12.8
-        bmi:
-          type: number
-          format: double
-          description: Body Mass Index
-          example: 22.5
-        pbf:
-          type: number
-          format: double
-          description: Percent Body Fat
-          example: 16.9
-        bmr:
-          type: integer
-          description: Basal Metabolic Rate in kcal
-          example: 1650
-        visceral_fat:
-          type: integer
-          description: Visceral fat level
-          example: 8
-        whr:
-          type: number
-          format: double
-          description: Waist-Hip Ratio
-          example: 0.85
-        metadata:
-          type: object
-          properties:
-            image_url:
-              type: string
-              description: URL of the stored scan image in SeaweedFS
-              example: http://127.0.0.1:8333/inbody-scans/user123/1234567890.jpg
-            processed_at:
-              type: string
-              format: date-time
-              description: Timestamp when the scan was processed
-              example: "2025-12-24T17:30:00Z"
-
-    ScanUpdateRequest:
-      type: object
-      description: All fields are optional. Only include fields you want to update.
-      properties:
-        weight:
-          type: number
-          format: double
-          example: 76.0
-        smm:
-          type: number
-          format: double
-          example: 35.5
-        body_fat_mass:
-          type: number
-          format: double
-          example: 12.5
-        pbf:
-          type: number
-          format: double
-          example: 16.5
-        bmi:
-          type: number
-          format: double
-          example: 22.6
-        bmr:
-          type: number
-          description: Will be converted to integer
-          example: 1660
-        visceral_fat:
-          type: number
-          description: Will be converted to integer
-          example: 7
-        whr:
-          type: number
-          format: double
-          example: 0.84
-
-    ScanResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: true
-        data:
-          $ref: "#/components/schemas/InBodyRecord"
-
-    ErrorResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: false
-        error:
+        equipment:
           type: string
-          example: Error message describing what went wrong
-
-  responses:
-    BadRequest:
-      description: Invalid request
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            success: false
-            error: "invalid request body"
-
-    Unauthorized:
-      description: Missing or invalid authentication token
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            success: false
-            error: "user not authenticated"
-
-    Forbidden:
-      description: Access denied - you don't own this resource
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            success: false
-            error: "you don't have access to this scan"
-
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            success: false
-            error: "scan not found"
-
-    InternalServerError:
-      description: Internal server error
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            success: false
-            error: "failed to process request"
-
-    AnalyticsHistory:
-      type: object
-      description: Complete analytics response with progress and time-series data
-      properties:
-        progress:
-          $ref: "#/components/schemas/ProgressSummary"
-        history:
-          type: array
-          items:
-            $ref: "#/components/schemas/TrendData"
-
-    ProgressSummary:
-      type: object
-      description: Total progress from first to latest scan
-      properties:
-        total_scans:
-          type: integer
-          description: Total number of scans
-          example: 8
-        first_scan_date:
+        video_url:
           type: string
-          format: date
-          description: Date of first scan
-          example: "2025-01-15"
-        latest_scan_date:
-          type: string
-          format: date
-          description: Date of latest scan
-          example: "2025-12-20"
-        weight_change:
-          type: number
-          format: double
-          description: Weight change in kg (positive = gained)
-          example: -2.5
-        muscle_gained:
-          type: number
-          format: double
-          description: Skeletal muscle mass gained in kg
-          example: 1.5
-        body_fat_change:
-          type: number
-          format: double
-          description: Body fat percentage change (negative = lost)
-          example: -3.2
 
-    TrendData:
+    WorkoutTemplate:
       type: object
-      description: Single data point for charting
-      properties:
-        date:
-          type: string
-          format: date-time
-          description: Test date
-          example: "2025-12-20T10:00:00Z"
-        core_metrics:
-          $ref: "#/components/schemas/CoreTrendMetric"
-        segmental_trends:
-          $ref: "#/components/schemas/SegmentalTrend"
-
-    CoreTrendMetric:
-      type: object
-      description: Key metrics for the "Big Three" chart
-      properties:
-        weight:
-          type: number
-          format: double
-          description: Body weight in kg
-          example: 75.5
-        smm:
-          type: number
-          format: double
-          description: Skeletal Muscle Mass in kg
-          example: 35.2
-        pbf:
-          type: number
-          format: double
-          description: Percent Body Fat
-          example: 16.9
-
-    SegmentalTrend:
-      type: object
-      description: Segmental data for body part analysis
-      properties:
-        lean:
-          $ref: "#/components/schemas/SegmentalTrendData"
-        fat:
-          $ref: "#/components/schemas/SegmentalTrendData"
-
-    SegmentalTrendData:
-      type: object
-      description: Body composition for each segment
-      properties:
-        right_arm:
-          $ref: "#/components/schemas/TrendSegmentMetrics"
-        left_arm:
-          $ref: "#/components/schemas/TrendSegmentMetrics"
-        trunk:
-          $ref: "#/components/schemas/TrendSegmentMetrics"
-        right_leg:
-          $ref: "#/components/schemas/TrendSegmentMetrics"
-        left_leg:
-          $ref: "#/components/schemas/TrendSegmentMetrics"
-
-    TrendSegmentMetrics:
-      type: object
-      description: Mass and percentage for a body segment
-      properties:
-        mass:
-          type: number
-          format: double
-          description: Mass in kg
-          example: 2.8
-        percentage:
-          type: number
-          format: double
-          description: Percentage of total
-          example: 8.0
-
-    TrendSummary:
-      type: object
-      description: Smart trend recap generated by AI
       properties:
         id:
           type: string
-          description: MongoDB ObjectID
-          example: 676a1b2c3d4e5f6g7h8i9j0k
-        user_id:
+        name:
           type: string
-          description: Firebase user ID
-          example: firebase_user_uid_123
-        summary_text:
+        gender:
           type: string
-          description: The AI-generated recap text
-          example: "Great progress! Your weight is stable but you've gained 1.5kg of muscle mass. Keep it up!"
-        last_generated_at:
-          type: string
-          format: date-time
-          description: When this recap was generated
-          example: "2025-12-25T14:30:00Z"
-        included_scan_ids:
+          enum: [Male, Female, All]
+        exercise_ids:
           type: array
-          description: List of scan IDs analyzed for this recap
           items:
             type: string
-            example: 676a1b2c3d4e5f6g7h8i9j0k
+
+    WorkoutSession:
+      type: object
+      properties:
+        id:
+          type: string
+        schedule_id:
+          type: string
+        coach_id:
+          type: string
+        member_id:
+          type: string
+        planned_exercises:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlannedExercise"
+
+    PlannedExercise:
+      type: object
+      properties:
+        exercise_id:
+          type: string
+        name:
+          type: string
+        sets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SetLog"
+
+    SetLog:
+      type: object
+      properties:
+        set_index:
+          type: integer
+        weight:
+          type: number
+        reps:
+          type: integer
+        remarks:
+          type: string
+        completed:
+          type: boolean
+
+security:
+  - bearerAuth: []
+
+paths:
+  # =======================
+  # AUTH
+  # =======================
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login or Register via Firebase Token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id_token: { type: string }
+      responses:
+        200:
+          description: OK
+
+  # =======================
+  # EXERCISES & TEMPLATES
+  # =======================
+  /v1/exercises:
+    get:
+      tags: [Exercises]
+      summary: Search Exercises
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+      responses:
+        200:
+          description: List of exercises
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Exercise"
+    post:
+      tags: [Exercises]
+      summary: Create Exercise (Admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Exercise"
+      responses:
+        201:
+          description: Created
+
+  /v1/exercises/{id}:
+    put:
+      tags: [Exercises]
+      summary: Update Exercise (Admin)
+    delete:
+      tags: [Exercises]
+      summary: Delete Exercise (Admin)
+
+  /v1/templates:
+    get:
+      tags: [Templates]
+      summary: List Templates
+      responses:
+        200:
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkoutTemplate"
+    post:
+      tags: [Templates]
+      summary: Create Template (Admin)
+
+  /v1/templates/{id}:
+    put:
+      tags: [Templates]
+      summary: Update Template
+    delete:
+      tags: [Templates]
+      summary: Delete Template
+
+  # =======================
+  # PRO (Coach)
+  # =======================
+  /v1/pro/clients:
+    get:
+      tags: [Pro]
+      summary: Get Assigned Clients
+
+  /v1/pro/clients/{id}/history:
+    get:
+      tags: [Pro]
+      summary: Get Client History
+
+  /v1/pro/schedules:
+    post:
+      tags: [Scheduling]
+      summary: Create Schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contract_id: { type: string }
+                start_time: { type: string, format: date-time }
+                end_time: { type: string, format: date-time }
+
+  /v1/pro/schedules/{id}/complete:
+    post:
+      tags: [Scheduling]
+      summary: Complete Session (Deduct Credit)
+
+  # WORKOUT SESSION ENGINE
+  /v1/pro/sessions/initialize:
+    post:
+      tags: [WorkoutSession]
+      summary: Initialize Session from Template
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                schedule_id: { type: string }
+                template_id: { type: string }
+      responses:
+        201:
+          description: Session Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkoutSession"
+
+  /v1/pro/sessions/{id}/exercises:
+    patch:
+      tags: [WorkoutSession]
+      summary: Add/Remove Exercises
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: { type: string, enum: [add, remove] }
+                exercise_id: { type: string }
+                index: { type: integer }
+
+  /v1/pro/sessions/{id}/log:
+    patch:
+      tags: [WorkoutSession]
+      summary: Log Set Results
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exercise_index: { type: integer }
+                set_index: { type: integer }
+                weight: { type: number }
+                reps: { type: integer }
+                remarks: { type: string }
+      responses:
+        200:
+          description: Logged
+
+  # =======================
+  # MEMBER
+  # =======================
+  /v1/me/scans/digitize:
+    post:
+      tags: [Member]
+      summary: Upload InBody Image
+
+  /v1/me/scans:
+    get:
+      tags: [Member]
+      summary: List Scans
+
+  /v1/me/scans/{id}:
+    get:
+      tags: [Member]
+      summary: Get Scan
+    patch:
+      tags: [Member]
+      summary: Update Scan
+    delete:
+      tags: [Member]
+      summary: Delete Scan
+
+  /v1/me/analytics/history:
+    get:
+      tags: [Member]
+      summary: Get History Charts
+
+  /v1/me/analytics/recap:
+    get:
+      tags: [Member]
+      summary: Get Recap
+
+  /v1/me/join-tenant:
+    post:
+      tags: [Member]
+      summary: Join Tenant via Code
+
+  /v1/me/contracts:
+    get:
+      tags: [Member]
+      summary: My Contracts
+
+  # =======================
+  # SCHEDULES & CONTRACTS (Shared)
+  # =======================
+  /v1/schedules:
+    get:
+      tags: [Scheduling]
+      summary: List Schedules (Filtered)
+
+  /v1/schedules/{id}:
+    get:
+      tags: [Scheduling]
+      summary: Get Schedule
+
+  /v1/schedules/{id}/reschedule:
+    patch:
+      tags: [Scheduling]
+      summary: Reschedule Session
+
+  /v1/contracts/{id}:
+    get:
+      tags: [Contracts]
+      summary: Get Contract Details
+
+  # =======================
+  # TENANT ADMIN
+  # =======================
+  /v1/tenant-admin/users:
+    get: { tags: [TenantAdmin] }
+    post: { tags: [TenantAdmin] }
+  /v1/tenant-admin/users/{id}:
+    get: { tags: [TenantAdmin] }
+    put: { tags: [TenantAdmin] }
+    delete: { tags: [TenantAdmin] }
+
+  /v1/tenant-admin/coaches:
+    get: { tags: [TenantAdmin] }
+    post: { tags: [TenantAdmin] }
+  /v1/tenant-admin/coaches/{id}:
+    get: { tags: [TenantAdmin] }
+    put: { tags: [TenantAdmin] }
+    delete: { tags: [TenantAdmin] }
+
+  /v1/tenant-admin/branches:
+    post: { tags: [TenantAdmin] }
+    get: { tags: [TenantAdmin] }
+  /v1/tenant-admin/branches/{id}:
+    get: { tags: [TenantAdmin] }
+    put: { tags: [TenantAdmin] }
+    delete: { tags: [TenantAdmin] }
+
+  /v1/tenant-admin/packages:
+    post: { tags: [TenantAdmin] }
+    get: { tags: [TenantAdmin] }
+  /v1/tenant-admin/packages/{id}:
+    get: { tags: [TenantAdmin] }
+    put: { tags: [TenantAdmin] }
+
+  /v1/tenant-admin/contracts:
+    post: { tags: [TenantAdmin] }
+    get: { tags: [TenantAdmin] }
+
+  # =======================
+  # PLATFORM (Super Admin)
+  # =======================
+  /v1/platform/tenants:
+    post: { tags: [Platform] }
+  /v1/platform/tenants/{id}:
+    get: { tags: [Platform] }
+    put: { tags: [Platform] }
+
+  /v1/platform/tenant-admins:
+    post: { tags: [Platform] }
+    get: { tags: [Platform] }
+  /v1/platform/tenant-admins/{id}:
+    get: { tags: [Platform] }
+    put: { tags: [Platform] }
+    delete: { tags: [Platform] }
+
+  /v1/platform/branches:
+    post: { tags: [Platform] }
+    get: { tags: [Platform] }
+  /v1/platform/branches/{id}:
+    get: { tags: [Platform] }
+    put: { tags: [Platform] }
+    delete: { tags: [Platform] }

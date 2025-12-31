@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"text/template"
 	"time"
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
@@ -15,50 +16,147 @@ import (
 
 const (
 	openRouterAPIURL = "https://openrouter.ai/api/v1/chat/completions"
-	systemPrompt     = "You are an expert at extracting data from InBody 270 body composition scans AND a caring, tactical personal trainer from 'House of Metamorfit' (HOM), a supportive local community gym. Extract metrics accurately and provide actionable, empathetic coaching advice. Return only valid JSON."
 
-	// V2 User Prompt Template - Enhanced with tactical coaching directives
-	userPromptTemplate = `Analyze this InBody 270 scan and extract ALL available data, then provide personalized, tactical coaching feedback.
+	// Default values if no tenant context is found
+	defaultGymName = "House of Metamorfit (HOM)"
+	defaultTone    = "Encouraging, empathetic"
+	defaultStyle   = "Tactical, practical"
+	defaultPersona = "Supportive personal trainer"
 
-**EXTRACTION TASK:**
-1. Extract ALL standard metrics: weight, smm, body_fat_mass, pbf, bmi, bmr, visceral_fat, whr, test_date
-2. Extract SEGMENTAL DATA from the body composition silhouettes (if visible):
-   - Segmental Lean Mass (kg and %%) for: right_arm, left_arm, trunk, right_leg, left_leg
-   - Segmental Fat Mass (kg and %%) for: right_arm, left_arm, trunk, right_leg, left_leg
+	// System Prompt Template
+	systemPromptTmplStr = `You are an expert at extracting data from InBody 270 body composition scans AND a {{.Persona}} from '{{.GymName}}'. Your tone should be {{.Tone}}. Your advice should be {{.Style}}. Extract metrics accurately and provide coaching advice. Return only valid JSON.`
 
-**ANALYSIS TASK - Personal Trainer from House of Metamorfit (HOM):**
+	// User Prompt: Analysis Section Template
+	analysisPromptTmplStr = `
+**ANALYSIS TASK - {{.Persona}} from {{.GymName}}:**
 
-You are a caring, knowledgeable trainer at HOM, our local community gym. Provide:
+You are a {{.Persona}} at {{.GymName}}. Provide:
 
 1. **Summary** (2-3 sentences):
-   - Start with an encouraging, empathetic tone
-   - Acknowledge their progress and commitment to tracking their fitness
-   - Mention 1-2 key observations about their body composition
-   - Reference HOM as their supportive community gym
+   - Start with a {{.Tone}} tone
+   - Acknowledge their progress
+   - Mention 1-2 key observations
+   - Reference {{.GymName}} as their community
 
 2. **Positive Feedback** (2-3 items):
-   - Highlight genuine strengths in their metrics
-   - Be specific with numbers when impressive
-   - Make them feel proud of their achievements
+   - Highlight strengths
+   - Be specific with numbers
+   - Make them feel proud
 
 3. **Improvements** (2-3 items):
    - Identify areas for growth, phrased constructively
-   - **ASYMMETRY DETECTION**: Compare segmental lean percentages:
-     * If Right Arm vs Left Arm differs by >2%%, mention the imbalance
-     * If Right Leg vs Left Leg differs by >2%%, mention the imbalance
-     * Be specific about which side is stronger/weaker
-   - **METRIC CORRELATION**:
-     * If Visceral Fat >10: Suggest focus on HIIT or Zone 2 cardio (60-70%% max HR)
-     * If PBF >25%% (women) or >18%% (men): Suggest caloric deficit + strength training
+   - **ASYMMETRY DETECTION**: Compare segmental lean percentages (>2%% diff)
+   - **METRIC CORRELATION**: Visceral Fat >10 (Suggest HIIT/Zone 2), PBF High (Suggest caloric deficit)
 
 4. **Advice** (2-3 actionable items):
-   - Provide specific, tactical gym advice they can implement at HOM
-   - **For Asymmetries >2%%**: Recommend unilateral exercises:
-     * E.g., "Single-arm dumbbell rows for left arm weakness"
-     * E.g., "Bulgarian split squats to address right leg imbalance"
-   - **For Visceral Fat**: Suggest specific cardio zones or HIIT protocols
-   - **For Muscle Building**: Recommend progressive overload strategies
-   - Keep advice practical and gym-focused
+   - Provide {{.Style}} advice they can implement at {{.GymName}}
+   - **For Asymmetries**: Recommend unilateral exercises
+   - **For Visceral Fat**: Suggest cardio (Zone 2/HIIT)
+   - **For Muscle**: Progressive overload
+`
+)
+
+// PromptContext holds data for the templates
+type PromptContext struct {
+	GymName string
+	Tone    string
+	Style   string
+	Persona string
+}
+
+// OpenRouterDigitizer implements domain.DigitizerService using OpenRouter API
+type OpenRouterDigitizer struct {
+	apiKey       string
+	model        string
+	httpClient   *http.Client
+	userRepo     domain.UserRepository
+	tenantRepo   domain.TenantRepository
+	systemTmpl   *template.Template
+	analysisTmpl *template.Template
+}
+
+// NewOpenRouterDigitizer creates a new OpenRouter digitizer service
+func NewOpenRouterDigitizer(
+	apiKey, model string,
+	userRepo domain.UserRepository,
+	tenantRepo domain.TenantRepository,
+) *OpenRouterDigitizer {
+	// Parse templates on init
+	sysTmpl, _ := template.New("system").Parse(systemPromptTmplStr)
+	anaTmpl, _ := template.New("analysis").Parse(analysisPromptTmplStr)
+
+	return &OpenRouterDigitizer{
+		apiKey:       apiKey,
+		model:        model,
+		httpClient:   &http.Client{Timeout: 60 * time.Second},
+		userRepo:     userRepo,
+		tenantRepo:   tenantRepo,
+		systemTmpl:   sysTmpl,
+		analysisTmpl: anaTmpl,
+	}
+}
+
+// ExtractMetrics uses OpenRouter AI to extract InBody metrics from an image
+func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, userID string, imageData []byte) (*domain.InBodyMetrics, error) {
+	// 1. Determine Context (SaaS)
+	promptCtx := PromptContext{
+		GymName: defaultGymName,
+		Tone:    defaultTone,
+		Style:   defaultStyle,
+		Persona: defaultPersona,
+	}
+
+	// Try to fetch user and tenant
+	if userID != "" && d.userRepo != nil {
+		user, err := d.userRepo.GetByFirebaseUID(ctx, userID)
+		if err == nil && user != nil && user.TenantID != "" {
+			tenant, err := d.tenantRepo.GetByID(ctx, user.TenantID)
+			if err == nil && tenant != nil {
+				promptCtx.GymName = tenant.Name
+				if tenant.AISettings.Tone != "" {
+					promptCtx.Tone = tenant.AISettings.Tone
+				}
+				if tenant.AISettings.Style != "" {
+					promptCtx.Style = tenant.AISettings.Style
+				}
+				if tenant.AISettings.Persona != "" {
+					promptCtx.Persona = tenant.AISettings.Persona
+				}
+			}
+		}
+	}
+
+	// 2. Generate Prompts
+	var systemPromptBuf bytes.Buffer
+	if err := d.systemTmpl.Execute(&systemPromptBuf, promptCtx); err != nil {
+		return nil, fmt.Errorf("failed to generate system prompt: %w", err)
+	}
+
+	var analysisPromptBuf bytes.Buffer
+	if err := d.analysisTmpl.Execute(&analysisPromptBuf, promptCtx); err != nil {
+		return nil, fmt.Errorf("failed to generate analysis prompt: %w", err)
+	}
+
+	// Combine Analysis prompt with the static Extraction prompt
+	// Note: We need to include the static extraction part.
+	fullUserPrompt := fmt.Sprintf(`Analyze this InBody 270 scan and extract ALL available data, then provide personalized, tactical coaching feedback.
+
+**EXTRACTION TASK:**
+1. Extract ALL standard metrics: weight, smm, body_fat_mass, pbf, bmi, bmr, visceral_fat, whr, test_date
+2. Extract ADDITIONAL metrics (Look at the **RIGHT COLUMN** of the sheet):
+   - **InBody Score**: Found in the top right box (e.g., "74/100"). Extract the numeric score.
+   - **Weight Control Section**:
+     - Target Weight (kg)
+     - Weight Control (kg) -> can be negative (-) or positive (+)
+     - Fat Control (kg) -> can be negative (-) or positive (+)
+     - Muscle Control (kg) -> can be negative (-) or positive (+)
+   - **Research Parameters Section**:
+     - Fat Free Mass (kg)
+     - Obesity Degree (%%) -> Extract the number (e.g., 105)
+     - Recommended Calorie Intake (kcal) -> often labeled "Recommended calorie intake" or under "Research Parameters"
+3. Extract SEGMENTAL DATA from the body composition silhouettes (if visible):
+   - Segmental Lean Mass (kg and %%) for: right_arm, left_arm, trunk, right_leg, left_leg
+   - Segmental Fat Mass (kg and %%) for: right_arm, left_arm, trunk, right_leg, left_leg
 
 %s
 
@@ -77,6 +175,14 @@ Return ONLY valid JSON in this EXACT format:
   "visceral_fat": 0,
   "whr": 0.0,
   "test_date": "2025-12-24T10:00:00Z",
+  "inbody_score": 0.0,
+  "obesity_degree": 0.0,
+  "fat_free_mass": 0.0,
+  "recommended_calorie_intake": 0,
+  "target_weight": 0.0,
+  "weight_control": 0.0,
+  "fat_control": 0.0,
+  "muscle_control": 0.0,
   "segmental_lean": {
     "right_arm": {"mass": 0.0, "percentage": 0.0},
     "left_arm": {"mass": 0.0, "percentage": 0.0},
@@ -92,44 +198,18 @@ Return ONLY valid JSON in this EXACT format:
     "left_leg": {"mass": 0.0, "percentage": 0.0}
   },
   "analysis": {
-    "summary": "Encouraging 2-3 sentence summary with HOM community context",
+    "summary": "Encouraging 2-3 sentence summary with %s community context",
     "positive_feedback": ["specific strength 1 with numbers", "specific strength 2"],
-    "improvements": ["area 1 with asymmetry details if >2%%", "area 2 with visceral fat context"],
+    "improvements": ["area 1 with asymmetry details if >2%%%%", "area 2 with visceral fat context"],
     "advice": ["tactical gym advice 1 (unilateral exercise if needed)", "tactical gym advice 2 (cardio zones if needed)"]
   }
 }
 
-NOTE: If segmental data is not visible or unclear, use 0.0 and mention it in the analysis summary.`
-)
+NOTE: If segmental data is not visible or unclear, use 0.0 and mention it in the analysis summary.`, analysisPromptBuf.String(), promptCtx.GymName)
 
-// OpenRouterDigitizer implements domain.DigitizerService using OpenRouter API
-type OpenRouterDigitizer struct {
-	apiKey     string
-	model      string
-	httpClient *http.Client
-}
-
-// NewOpenRouterDigitizer creates a new OpenRouter digitizer service
-func NewOpenRouterDigitizer(apiKey, model string) *OpenRouterDigitizer {
-	return &OpenRouterDigitizer{
-		apiKey: apiKey,
-		model:  model,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second, // AI processing can take some time
-		},
-	}
-}
-
-// ExtractMetrics uses OpenRouter AI to extract InBody metrics from an image
-func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []byte) (*domain.InBodyMetrics, error) {
-	// Detect image type from file header
+	// Detect image type
 	imageType := detectImageType(imageData)
-
-	// Encode image to base64
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
-
-	// Build the user prompt (no previous context - analyzing current scan only)
-	userPrompt := fmt.Sprintf(userPromptTemplate, "")
 
 	// Build request payload
 	requestBody := map[string]interface{}{
@@ -137,14 +217,14 @@ func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []by
 		"messages": []map[string]interface{}{
 			{
 				"role":    "system",
-				"content": systemPrompt,
+				"content": systemPromptBuf.String(),
 			},
 			{
 				"role": "user",
 				"content": []map[string]interface{}{
 					{
 						"type": "text",
-						"text": userPrompt,
+						"text": fullUserPrompt,
 					},
 					{
 						"type": "image_url",
@@ -155,7 +235,7 @@ func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []by
 				},
 			},
 		},
-		"temperature": 0.1, // Low temperature for consistent, factual extraction
+		"temperature": 0.1,
 	}
 
 	payload, err := json.Marshal(requestBody)
@@ -171,8 +251,8 @@ func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []by
 
 	req.Header.Set("Authorization", "Bearer "+d.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", "https://homgym.app") // Optional: for OpenRouter analytics
-	req.Header.Set("X-Title", "HOM Gym Digitizer")       // Optional: for OpenRouter analytics
+	req.Header.Set("HTTP-Referer", "https://homgym.app") // Optional
+	req.Header.Set("X-Title", "HOM Gym Digitizer")       // Optional
 
 	// Send request
 	resp, err := d.httpClient.Do(req)
@@ -181,18 +261,15 @@ func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []by
 	}
 	defer resp.Body.Close()
 
-	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Check for non-200 status
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("openrouter api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	// Parse OpenRouter response
 	var apiResponse struct {
 		Choices []struct {
 			Message struct {
@@ -210,36 +287,27 @@ func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []by
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Check for API error with detailed message
 	if apiResponse.Error != nil {
 		errorMsg := fmt.Sprintf("openrouter error: %s (code: %d)", apiResponse.Error.Message, apiResponse.Error.Code)
 		if apiResponse.Error.Metadata != nil {
 			if providerErr, ok := apiResponse.Error.Metadata["provider_error"].(string); ok {
 				errorMsg += fmt.Sprintf(" - Provider error: %s", providerErr)
 			}
-			if raw, ok := apiResponse.Error.Metadata["raw"].(string); ok {
-				errorMsg += fmt.Sprintf(" - Raw: %s", raw)
-			}
 		}
 		return nil, fmt.Errorf(errorMsg)
 	}
 
-	// Check if we got a response
 	if len(apiResponse.Choices) == 0 {
 		return nil, fmt.Errorf("no response from AI model")
 	}
 
-	// Extract the JSON content from the AI response
 	content := apiResponse.Choices[0].Message.Content
 
-	// Parse the metrics JSON
 	var metrics domain.InBodyMetrics
 	if err := json.Unmarshal([]byte(content), &metrics); err != nil {
-		// If direct unmarshal fails, try to find JSON in the response
-		// Sometimes AI adds explanation text around the JSON
 		metrics, err = extractJSONFromText(content)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse AI response as JSON: %w (response: %s)", err, content)
+			return nil, fmt.Errorf("failed to parse AI response as JSON: %w", err)
 		}
 	}
 
@@ -250,7 +318,6 @@ func (d *OpenRouterDigitizer) ExtractMetrics(ctx context.Context, imageData []by
 func extractJSONFromText(text string) (domain.InBodyMetrics, error) {
 	var metrics domain.InBodyMetrics
 
-	// Find JSON object in text (simple approach: look for first { and last })
 	start := bytes.IndexByte([]byte(text), '{')
 	end := bytes.LastIndexByte([]byte(text), '}')
 
@@ -269,30 +336,20 @@ func extractJSONFromText(text string) (domain.InBodyMetrics, error) {
 // detectImageType detects the MIME type of an image from its header bytes
 func detectImageType(data []byte) string {
 	if len(data) < 12 {
-		return "image/jpeg" // default fallback
+		return "image/jpeg"
 	}
-
-	// Check for JPEG (FF D8 FF)
 	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
 		return "image/jpeg"
 	}
-
-	// Check for PNG (89 50 4E 47)
 	if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
 		return "image/png"
 	}
-
-	// Check for GIF (47 49 46)
 	if data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 {
 		return "image/gif"
 	}
-
-	// Check for WebP (52 49 46 46 ... 57 45 42 50)
 	if len(data) >= 12 && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 &&
 		data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 {
 		return "image/webp"
 	}
-
-	// Default to JPEG if unknown
 	return "image/jpeg"
 }

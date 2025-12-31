@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 const (
@@ -76,10 +77,15 @@ func (s *TrendService) GenerateTrendRecap(ctx context.Context, userID string) (*
 		return nil, fmt.Errorf("failed to fetch scan history: %w", err)
 	}
 
+	userObjectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+
 	// If no scans available, return empty summary
 	if len(scans) == 0 {
 		return &domain.TrendSummary{
-			UserID:          userID,
+			UserID:          userObjectID,
 			SummaryText:     "No scans available yet! Upload your first InBody scan to start tracking your progress.",
 			LastGeneratedAt: time.Now(),
 			IncludedScanIDs: []string{},
@@ -99,7 +105,7 @@ func (s *TrendService) GenerateTrendRecap(ctx context.Context, userID string) (*
 			firstScan.PBF,
 		)
 		summary := &domain.TrendSummary{
-			UserID:          userID,
+			UserID:          userObjectID,
 			SummaryText:     summaryText,
 			LastGeneratedAt: time.Now(),
 			IncludedScanIDs: []string{firstScan.ID},
@@ -163,7 +169,7 @@ func (s *TrendService) GenerateTrendRecap(ctx context.Context, userID string) (*
 
 	// Create and save trend summary
 	summary := &domain.TrendSummary{
-		UserID:          userID,
+		UserID:          userObjectID,
 		SummaryText:     summaryText,
 		LastGeneratedAt: time.Now(),
 		IncludedScanIDs: scanIDs,

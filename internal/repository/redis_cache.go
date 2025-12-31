@@ -120,3 +120,9 @@ func (r *RedisCacheRepository) GetTrendRecap(ctx context.Context, userID string)
 
 	return &summary, nil
 }
+
+// InvalidateTrendRecap removes cached trend recap for a user
+func (r *RedisCacheRepository) InvalidateTrendRecap(ctx context.Context, userID string) error {
+	key := fmt.Sprintf("%s%s", trendRecapKeyPrefix, userID)
+	return r.client.Del(ctx, key).Err()
+}

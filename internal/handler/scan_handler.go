@@ -11,10 +11,6 @@ import (
 	"github.com/mansoorceksport/metamorph/internal/middleware"
 )
 
-const (
-	maxUploadSize = 5 * 1024 * 1024 // 5MB in bytes
-)
-
 // ScanHandler handles HTTP requests for scan operations
 type ScanHandler struct {
 	scanService domain.ScanService

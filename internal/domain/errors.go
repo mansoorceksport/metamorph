@@ -6,4 +6,5 @@ import "errors"
 var (
 	ErrNotFound  = errors.New("record not found")
 	ErrForbidden = errors.New("access forbidden: you don't own this resource")
+	ErrInvalidID = errors.New("invalid id")
 )

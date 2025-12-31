@@ -65,17 +65,25 @@ func (r *MongoInBodyRepository) Create(ctx context.Context, record *domain.InBod
 
 	// Create BSON document with proper ObjectID type for _id
 	doc := bson.M{
-		"_id":            objectID, // Store as ObjectID, not string
-		"user_id":        record.UserID,
-		"test_date_time": record.TestDateTime,
-		"weight":         record.Weight,
-		"smm":            record.SMM,
-		"body_fat_mass":  record.BodyFatMass,
-		"bmi":            record.BMI,
-		"pbf":            record.PBF,
-		"bmr":            record.BMR,
-		"visceral_fat":   record.VisceralFatLevel,
-		"whr":            record.WaistHipRatio,
+		"_id":                        objectID, // Store as ObjectID, not string
+		"user_id":                    record.UserID,
+		"test_date_time":             record.TestDateTime,
+		"weight":                     record.Weight,
+		"smm":                        record.SMM,
+		"body_fat_mass":              record.BodyFatMass,
+		"bmi":                        record.BMI,
+		"pbf":                        record.PBF,
+		"bmr":                        record.BMR,
+		"visceral_fat":               record.VisceralFatLevel,
+		"whr":                        record.WaistHipRatio,
+		"inbody_score":               record.InBodyScore,
+		"obesity_degree":             record.ObesityDegree,
+		"fat_free_mass":              record.FatFreeMass,
+		"recommended_calorie_intake": record.RecommendedCalorieIntake,
+		"target_weight":              record.TargetWeight,
+		"weight_control":             record.WeightControl,
+		"fat_control":                record.FatControl,
+		"muscle_control":             record.MuscleControl,
 		"metadata": bson.M{
 			"image_url":    record.Metadata.ImageURL,
 			"processed_at": processedAt,
@@ -107,11 +115,15 @@ func (r *MongoInBodyRepository) Create(ctx context.Context, record *domain.InBod
 
 // GetLatestByUserID retrieves the most recent scan for a user
 func (r *MongoInBodyRepository) GetLatestByUserID(ctx context.Context, userID string) (*domain.InBodyRecord, error) {
-	filter := bson.M{"user_id": userID}
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	filter := bson.M{"user_id": oid}
 	opts := options.FindOne().SetSort(bson.D{{Key: "test_date_time", Value: -1}})
 
 	var record domain.InBodyRecord
-	err := r.collection.FindOne(ctx, filter, opts).Decode(&record)
+	err = r.collection.FindOne(ctx, filter, opts).Decode(&record)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil // No record found, return nil
@@ -124,7 +136,11 @@ func (r *MongoInBodyRepository) GetLatestByUserID(ctx context.Context, userID st
 
 // GetByUserID retrieves multiple scans for a user, limited by count
 func (r *MongoInBodyRepository) GetByUserID(ctx context.Context, userID string, limit int) ([]*domain.InBodyRecord, error) {
-	filter := bson.M{"user_id": userID}
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	filter := bson.M{"user_id": oid}
 	opts := options.Find().
 		SetSort(bson.D{{Key: "test_date_time", Value: -1}}).
 		SetLimit(int64(limit))
@@ -145,7 +161,11 @@ func (r *MongoInBodyRepository) GetByUserID(ctx context.Context, userID string, 
 
 // FindAllByUserID retrieves all scans for a user, sorted by test_date_time DESC
 func (r *MongoInBodyRepository) FindAllByUserID(ctx context.Context, userID string) ([]*domain.InBodyRecord, error) {
-	filter := bson.M{"user_id": userID}
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	filter := bson.M{"user_id": oid}
 	opts := options.Find().SetSort(bson.D{{Key: "test_date_time", Value: -1}})
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
@@ -193,14 +213,22 @@ func (r *MongoInBodyRepository) Update(ctx context.Context, id string, record *d
 	filter := bson.M{"_id": objectID}
 	update := bson.M{
 		"$set": bson.M{
-			"weight":        record.Weight,
-			"smm":           record.SMM,
-			"body_fat_mass": record.BodyFatMass,
-			"bmi":           record.BMI,
-			"pbf":           record.PBF,
-			"bmr":           record.BMR,
-			"visceral_fat":  record.VisceralFatLevel,
-			"whr":           record.WaistHipRatio,
+			"weight":                     record.Weight,
+			"smm":                        record.SMM,
+			"body_fat_mass":              record.BodyFatMass,
+			"bmi":                        record.BMI,
+			"pbf":                        record.PBF,
+			"bmr":                        record.BMR,
+			"visceral_fat":               record.VisceralFatLevel,
+			"whr":                        record.WaistHipRatio,
+			"inbody_score":               record.InBodyScore,
+			"obesity_degree":             record.ObesityDegree,
+			"fat_free_mass":              record.FatFreeMass,
+			"recommended_calorie_intake": record.RecommendedCalorieIntake,
+			"target_weight":              record.TargetWeight,
+			"weight_control":             record.WeightControl,
+			"fat_control":                record.FatControl,
+			"muscle_control":             record.MuscleControl,
 		},
 	}
 
@@ -240,19 +268,31 @@ func (r *MongoInBodyRepository) Delete(ctx context.Context, id string) error {
 // GetTrendHistory retrieves N scans for analytics, sorted ascending by test_date_time
 // Uses projection to only return necessary fields for charting
 func (r *MongoInBodyRepository) GetTrendHistory(ctx context.Context, userID string, limit int) ([]*domain.InBodyRecord, error) {
-	filter := bson.M{"user_id": userID}
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	filter := bson.M{"user_id": oid}
 
 	// Sort ascending (oldest first) for left-to-right chart plotting
 	opts := options.Find().
 		SetSort(bson.D{{Key: "test_date_time", Value: 1}}).
 		SetLimit(int64(limit)).
 		SetProjection(bson.M{
-			"test_date_time": 1,
-			"weight":         1,
-			"smm":            1,
-			"pbf":            1,
-			"segmental_lean": 1,
-			"segmental_fat":  1,
+			"test_date_time":             1,
+			"weight":                     1,
+			"smm":                        1,
+			"pbf":                        1,
+			"inbody_score":               1,
+			"obesity_degree":             1,
+			"fat_free_mass":              1,
+			"recommended_calorie_intake": 1,
+			"target_weight":              1,
+			"weight_control":             1,
+			"fat_control":                1,
+			"muscle_control":             1,
+			"segmental_lean":             1,
+			"segmental_fat":              1,
 		})
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
@@ -296,11 +336,15 @@ func (r *MongoInBodyRepository) SaveTrendSummary(ctx context.Context, summary *d
 
 // GetLatestTrendSummary retrieves the most recent trend summary for a user
 func (r *MongoInBodyRepository) GetLatestTrendSummary(ctx context.Context, userID string) (*domain.TrendSummary, error) {
-	filter := bson.M{"user_id": userID}
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	filter := bson.M{"user_id": oid}
 	opts := options.FindOne().SetSort(bson.D{{Key: "last_generated_at", Value: -1}})
 
 	var summary domain.TrendSummary
-	err := r.trendSummaryCollection.FindOne(ctx, filter, opts).Decode(&summary)
+	err = r.trendSummaryCollection.FindOne(ctx, filter, opts).Decode(&summary)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil // No summary found, return nil

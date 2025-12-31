@@ -47,6 +47,16 @@ func (s *AnalyticsService) GetHistory(ctx context.Context, userID string, limit 
 				SMM:    record.SMM,
 				PBF:    record.PBF,
 			},
+			ExtendedMetrics: &domain.ExtendedMetrics{
+				InBodyScore:              record.InBodyScore,
+				ObesityDegree:            record.ObesityDegree,
+				FatFreeMass:              record.FatFreeMass,
+				RecommendedCalorieIntake: record.RecommendedCalorieIntake,
+				TargetWeight:             record.TargetWeight,
+				WeightControl:            record.WeightControl,
+				FatControl:               record.FatControl,
+				MuscleControl:            record.MuscleControl,
+			},
 		}
 
 		// Add segmental data if available

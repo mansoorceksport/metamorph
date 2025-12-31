@@ -6,3 +6,4 @@ test_get_token.go
 get_firebase_token.py
 bin/
 users.json
+scripts

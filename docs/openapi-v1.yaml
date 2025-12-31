@@ -1,0 +1,1469 @@
+openapi: 3.0.3
+info:
+  title: HOM Gym - Metamorph API
+  description: |
+    Multi-tenant SaaS platform for InBody scan digitization with role-based access control.
+
+    ## Authentication
+    Use `/v1/auth/login` to obtain a Metamorph JWT token containing your roles and tenant context.
+    Include the token in the `Authorization` header as `Bearer <token>`.
+
+    ## Authorization & Multi-Tenancy
+    - **Member API** (`/v1/me/*`) - Requires `member` role. Access personal data only.
+    - **Pro API** (`/v1/pro/*`) - Requires `coach` role. Access assigned clients.
+    - **Admin API** (`/v1/admin/*`) - Requires `admin` role. Full tenant management.
+
+    All data is automatically scoped to your tenant. Cross-tenant access is blocked.
+
+    ## Features
+    - AI-powered metric extraction using Gemini 2.0 Flash
+    - Multi-role user support (coach + member)
+    - Tenant isolation with RBAC
+    - SeaweedFS distributed storage
+    - MongoDB metadata storage
+    - Redis caching (24h TTL)
+
+  version: 2.0.0
+  contact:
+    name: mansoorceksport
+  license:
+    name: Copyright © 2025 mansoorceksport
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Service health check
+  - name: Auth
+    description: Authentication and JWT token generation
+  - name: Member API
+    description: Personal scans and analytics (requires 'member' role, /v1/me/*)
+  - name: Pro API
+    description: Client management and assignments (requires 'coach' role, /v1/pro/*)
+  - name: Admin API
+    description: Tenant and user management (requires 'admin' role, /v1/admin/*)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint
+      description: Returns the health status of the service
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: hom-gym-digitizer
+
+  /v1/scans/digitize:
+    post:
+      tags:
+        - Scans
+      summary: Digitize an InBody scan image
+      description: |
+        Upload an InBody scan image for AI-powered metric extraction.
+        The image is stored in SeaweedFS and metrics are extracted using Gemini 2.0 Flash.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: InBody scan image (JPEG/PNG, max 5MB)
+      responses:
+        "200":
+          description: Scan digitized successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Smart login or register with role assignment
+      description: |
+        Unified authentication endpoint that handles both login and registration.
+
+        **How it works:**
+        - If user exists: Adds the requested role if not already present
+        - If new user: Creates user with requested role
+        - If registering as coach: Auto-creates tenant
+
+        **Multi-role support:** Users can have multiple roles (e.g., both 'coach' and 'member')
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requested_role:
+                  type: string
+                  enum: [coach, member, admin]
+                  default: member
+                  description: Role to assign to the user
+            example:
+              requested_role: "coach"
+      responses:
+        "200":
+          description: Login/registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+                  is_new_user:
+                    type: boolean
+                    description: True if this was a new registration
+                  role_added:
+                    type: boolean
+                    description: True if a new role was added
+                  tenant_id:
+                    type: string
+                    description: Tenant ID (auto-created for new coaches)
+                  message:
+                    type: string
+                    description: Welcome message
+              example:
+                user:
+                  id: "user_123"
+                  email: "coach@hom.gym"
+                  name: "Coach Mike"
+                  roles: ["coach"]
+                  tenant_id: "tenant_456"
+                is_new_user: true
+                role_added: true
+                tenant_id: "tenant_456"
+                message: "Welcome! Your account has been created."
+        "400":
+          description: Invalid role requested
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/scans:
+    get:
+      tags:
+        - Scans
+      summary: List all scans for authenticated user
+      description: Returns all InBody scans for the authenticated user, sorted by test date (newest first)
+      responses:
+        "200":
+          description: List of scans retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InBodyRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/scans/{id}:
+    get:
+      tags:
+        - Scans
+      summary: Get a single scan by ID
+      description: Returns a specific InBody scan. User must own the scan.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Scan retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    patch:
+      tags:
+        - Scans
+      summary: Update scan metrics
+      description: |
+        Update specific metrics of an InBody scan (useful for correcting AI miscalculations).
+        User must own the scan. All fields are optional.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanUpdateRequest"
+            example:
+              weight: 76.0
+              smm: 35.5
+              body_fat_mass: 12.5
+              pbf: 16.5
+              bmi: 22.6
+              bmr: 1660
+              visceral_fat: 7
+              whr: 0.84
+      responses:
+        "200":
+          description: Scan updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      tags:
+        - Scans
+      summary: Delete a scan
+      description: |
+        Permanently delete an InBody scan and its associated image from storage.
+        User must own the scan. This action cannot be undone.
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Scan deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: scan deleted successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/analytics/history:
+    get:
+      tags:
+        - Analytics
+      summary: Get analytics history for charting
+      description: |
+        Returns time-series data for the "Big Three" metrics (Weight, SMM, PBF) and segmental trends.
+        Includes progress summary showing total gains/losses from first to latest scan.
+      parameters:
+        - name: limit
+          in: query
+          description: Number of scans to retrieve (default 10, max 100)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Analytics history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/AnalyticsHistory"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/analytics/recap:
+    get:
+      tags:
+        - Analytics
+      summary: Get AI-generated trend recap
+      description: |
+        Returns a smart, AI-generated recap of the user's progress.
+        Uses a 3-tier caching strategy (Redis -> MongoDB -> AI Generation) with a 7-day TTL.
+      responses:
+        "200":
+          description: Trend recap retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/TrendSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/tenants:
+    post:
+      tags:
+        - SaaS
+      summary: Create a new tenant
+      description: Register a new gym/brand tenant in the platform.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Tenant"
+            example:
+              name: "Iron Paradise Gym"
+              logo_url: "https://example.com/logo.png"
+              ai_settings:
+                tone: "Motivating, Hardcore"
+                style: "Direct, No-nonsense"
+                persona: "Old school bodybuilding coach"
+      responses:
+        "201":
+          description: Tenant created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/tenants/{id}:
+    get:
+      tags:
+        - SaaS
+      summary: Get tenant details
+      description: Retrieve details for a specific tenant.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Tenant ID
+      responses:
+        "200":
+          description: Tenant details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags:
+        - SaaS
+      summary: Update tenant details
+      description: Update an existing tenant's information.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Tenant ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Tenant"
+            example:
+              name: "Iron Paradise Gym (Updated)"
+              logo_url: "https://example.com/new-logo.png"
+              ai_settings:
+                tone: "Professional, Encouraging"
+                style: "Friendly"
+                persona: "Modern fitness coach"
+      responses:
+        "200":
+          description: Tenant updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/assignments:
+    get:
+      tags:
+        - SaaS
+        - Pro
+      summary: List members assigned to a coach
+      description: Get all members assigned to a specific coach by providing coach_id as query parameter
+      parameters:
+        - name: coach_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ID of the coach to fetch assigned members for
+      responses:
+        "200":
+          description: List of members assigned to the coach
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Coach not found
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - SaaS
+      summary: Assign a coach to a member
+      description: Link a member to a coach (1-to-many relationship). Both must belong to the same tenant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - coach_id
+                - member_id
+              properties:
+                coach_id:
+                  type: string
+                  description: User ID of the coach
+                  example: "coach_user_id_123"
+                member_id:
+                  type: string
+                  description: FirebaseUID of the member
+                  example: "firebase_uid_456"
+      responses:
+        "201":
+          description: Assignment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachAssignment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/assignments/{id}:
+    delete:
+      tags:
+        - SaaS
+      summary: Remove a coach assignment
+      description: Remove the link between a coach and a member.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Assignment ID
+      responses:
+        "204":
+          description: Assignment removed successfully
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/pro/clients:
+    get:
+      tags:
+        - Pro
+      summary: Get coach's client roster
+      description: Returns a list of all members assigned to the authenticated coach.
+      responses:
+        "200":
+          description: Client roster retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/pro/clients/{id}/history:
+    get:
+      tags:
+        - Pro
+      summary: Get specific client's history
+      description: "Allows a coach to view their client's scan history. Coach must be assigned to the client."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Client's Firebase UID
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 12
+      responses:
+        "200":
+          description: Client history retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsHistory"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/auth/sync:
+    post:
+      tags:
+        - SaaS
+      summary: Sync user on login
+      description: UPSERT operation - creates user if first login, updates profile if exists.
+      responses:
+        "200":
+          description: User synced successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/users:
+    post:
+      tags:
+        - SaaS
+      summary: Create a user
+      description: Create a new user. The `id` and `created_at` fields are auto-generated and should not be included in the request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+            example:
+              firebase_uid: "fb_uid_new_user_123"
+              email: "newuser@hom.gym"
+              name: "New User"
+              role: "member"
+              tenant_id: "tenant_123"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    get:
+      tags:
+        - SaaS
+      summary: List users
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [member, coach, admin]
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/users/{id}:
+    get:
+      tags:
+        - SaaS
+      summary: Get user details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags:
+        - SaaS
+      summary: Update user
+      description: |
+        Update user details. The `id` is taken from the path parameter.
+        The `created_at` field is preserved from the original record.
+        The `updated_at` field is automatically set to the current timestamp by the backend.
+        Do not include `id`, `created_at`, or `updated_at` in the request body.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+            example:
+              firebase_uid: "fb_uid_456"
+              email: "updated_email@hom.gym"
+              name: "Updated Name"
+              tenant_id: "tenant_123"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags:
+        - SaaS
+      summary: Delete user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: User deleted
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/coaches:
+    get:
+      tags:
+        - SaaS
+        - Pro
+      summary: List coaches
+      description: Returns all coaches. Optionally filter by tenant_id to get coaches for a specific gym.
+      parameters:
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional tenant ID to filter coaches by gym
+      responses:
+        "200":
+          description: List of coaches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Coach"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - SaaS
+      summary: Create coach
+      description: |
+        Create a new coach. The `id` and `created_at` fields are auto-generated and should not be included in the request. 
+        The `role` field is automatically set to "coach" by this endpoint, so you can omit it from the request body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Coach"
+            example:
+              firebase_uid: "fb_uid_coach_789"
+              email: "coach@hom.gym"
+              name: "Coach Mike"
+              tenant_id: "tenant_123"
+      responses:
+        "201":
+          description: Coach created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Coach"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/coaches/{id}:
+    get:
+      tags:
+        - SaaS
+        - Pro
+      summary: Get coach details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Coach ID
+      responses:
+        "200":
+          description: Coach details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Coach"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags:
+        - SaaS
+      summary: Update coach
+      description: |
+        Update coach details. The `id` is taken from the path parameter.
+        The `created_at` field is preserved from the original record.
+        The `updated_at` field is automatically set to the current timestamp by the backend.
+        Do not include `id`, `created_at`, or `updated_at` in the request body.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Coach ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachUpdate"
+            example:
+              firebase_uid: "fb_uid_coach_789"
+              email: "updated_coach@hom.gym"
+              name: "Updated Coach Name"
+              tenant_id: "tenant_123"
+      responses:
+        "200":
+          description: Coach updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Coach"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags:
+        - SaaS
+      summary: Delete coach
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Coach ID
+      responses:
+        "204":
+          description: Coach deleted
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token
+
+  parameters:
+    ScanId:
+      name: id
+      in: path
+      required: true
+      description: MongoDB ObjectID of the scan
+      schema:
+        type: string
+        pattern: '^[a-f\d]{24}$'
+        example: 676a1b2c3d4e5f6g7h8i9j0k
+
+  schemas:
+    InBodyRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectID
+          example: 676a1b2c3d4e5f6g7h8i9j0k
+        user_id:
+          type: string
+          description: Firebase user ID
+          example: firebase_user_uid_123
+        test_date_time:
+          type: string
+          format: date-time
+          description: Date and time of the InBody test
+          example: "2025-12-24T10:00:00Z"
+        weight:
+          type: number
+          format: double
+          description: Body weight in kg
+          example: 75.5
+        smm:
+          type: number
+          format: double
+          description: Skeletal Muscle Mass in kg
+          example: 35.2
+        body_fat_mass:
+          type: number
+          format: double
+          description: Body fat mass in kg
+          example: 12.8
+        bmi:
+          type: number
+          format: double
+          description: Body Mass Index
+          example: 22.5
+        pbf:
+          type: number
+          format: double
+          description: Percent Body Fat
+          example: 16.9
+        bmr:
+          type: integer
+          description: Basal Metabolic Rate in kcal
+          example: 1650
+        visceral_fat:
+          type: integer
+          description: Visceral fat level
+          example: 8
+        whr:
+          type: number
+          format: double
+          description: Waist-Hip Ratio
+          example: 0.85
+        inbody_score:
+          type: number
+          format: double
+          description: InBody Score
+          example: 74.0
+        obesity_degree:
+          type: number
+          format: double
+          description: Obesity Degree (%)
+          example: 105.0
+        fat_free_mass:
+          type: number
+          format: double
+          description: Fat Free Mass in kg
+          example: 61.2
+        recommended_calorie_intake:
+          type: integer
+          description: Recommended Daily Calorie Intake
+          example: 2172
+        target_weight:
+          type: number
+          format: double
+          description: Target Weight in kg
+          example: 67.4
+        weight_control:
+          type: number
+          format: double
+          description: Weight Control needed in kg
+          example: -6.5
+        fat_control:
+          type: number
+          format: double
+          description: Fat Control needed in kg
+          example: -9.7
+        muscle_control:
+          type: number
+          format: double
+          description: Muscle Control needed in kg
+          example: 3.2
+        metadata:
+          type: object
+          properties:
+            image_url:
+              type: string
+              description: URL of the stored scan image in SeaweedFS
+              example: http://127.0.0.1:8333/inbody-scans/user123/1234567890.jpg
+            processed_at:
+              type: string
+              format: date-time
+              description: Timestamp when the scan was processed
+              example: "2025-12-24T17:30:00Z"
+
+    ScanUpdateRequest:
+      type: object
+      description: All fields are optional. Only include fields you want to update.
+      properties:
+        weight:
+          type: number
+          format: double
+          example: 76.0
+        smm:
+          type: number
+          format: double
+          example: 35.5
+        body_fat_mass:
+          type: number
+          format: double
+          example: 12.5
+        pbf:
+          type: number
+          format: double
+          example: 16.5
+        bmi:
+          type: number
+          format: double
+          example: 22.6
+        bmr:
+          type: number
+          description: Will be converted to integer
+          example: 1660
+        visceral_fat:
+          type: number
+          description: Will be converted to integer
+          example: 7
+        whr:
+          type: number
+          format: double
+          example: 0.84
+        inbody_score:
+          type: number
+          format: double
+          example: 74.0
+        obesity_degree:
+          type: number
+          format: double
+          example: 105.0
+        fat_free_mass:
+          type: number
+          format: double
+          example: 61.2
+        recommended_calorie_intake:
+          type: integer
+          example: 2172
+        target_weight:
+          type: number
+          format: double
+          example: 67.4
+        weight_control:
+          type: number
+          format: double
+          example: -6.5
+        fat_control:
+          type: number
+          format: double
+          example: -9.7
+        muscle_control:
+          type: number
+          format: double
+          example: 3.2
+
+    ScanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: "#/components/schemas/InBodyRecord"
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Error message describing what went wrong
+
+    AnalyticsHistory:
+      type: object
+      description: Complete analytics response with progress and time-series data
+      properties:
+        progress:
+          $ref: "#/components/schemas/ProgressSummary"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendData"
+
+    ProgressSummary:
+      type: object
+      description: Total progress from first to latest scan
+      properties:
+        total_scans:
+          type: integer
+          description: Total number of scans
+          example: 8
+        first_scan_date:
+          type: string
+          format: date
+          description: Date of first scan
+          example: "2025-01-15"
+        latest_scan_date:
+          type: string
+          format: date
+          description: Date of latest scan
+          example: "2025-12-20"
+        weight_change:
+          type: number
+          format: double
+          description: Weight change in kg (positive = gained)
+          example: -2.5
+        muscle_gained:
+          type: number
+          format: double
+          description: Skeletal muscle mass gained in kg
+          example: 1.5
+        body_fat_change:
+          type: number
+          format: double
+          description: Body fat percentage change (negative = lost)
+          example: -3.2
+
+    TrendData:
+      type: object
+      description: Single data point for charting
+      properties:
+        date:
+          type: string
+          format: date-time
+          description: Test date
+          example: "2025-12-20T10:00:00Z"
+        core_metrics:
+          $ref: "#/components/schemas/CoreTrendMetric"
+        extended_metrics:
+          $ref: "#/components/schemas/ExtendedMetrics"
+        segmental_trends:
+          $ref: "#/components/schemas/SegmentalTrend"
+
+    CoreTrendMetric:
+      type: object
+      description: Key metrics for the "Big Three" chart
+      properties:
+        weight:
+          type: number
+          format: double
+          description: Body weight in kg
+          example: 75.5
+        smm:
+          type: number
+          format: double
+          description: Skeletal Muscle Mass in kg
+          example: 35.2
+        pbf:
+          type: number
+          format: double
+          description: Percent Body Fat
+          example: 16.9
+
+    ExtendedMetrics:
+      type: object
+      description: Additional detailed metrics
+      properties:
+        inbody_score:
+          type: number
+          format: double
+          example: 74.0
+        obesity_degree:
+          type: number
+          format: double
+          example: 105.0
+        fat_free_mass:
+          type: number
+          format: double
+          example: 61.2
+        recommended_calorie_intake:
+          type: integer
+          example: 2172
+        target_weight:
+          type: number
+          format: double
+          example: 67.4
+        weight_control:
+          type: number
+          format: double
+          example: -6.5
+        fat_control:
+          type: number
+          format: double
+          example: -9.7
+        muscle_control:
+          type: number
+          format: double
+          example: 3.2
+
+    SegmentalTrend:
+      type: object
+      description: Segmental data for body part analysis
+      properties:
+        lean:
+          $ref: "#/components/schemas/SegmentalTrendData"
+        fat:
+          $ref: "#/components/schemas/SegmentalTrendData"
+
+    SegmentalTrendData:
+      type: object
+      description: Body composition for each segment
+      properties:
+        right_arm:
+          $ref: "#/components/schemas/TrendSegmentMetrics"
+        left_arm:
+          $ref: "#/components/schemas/TrendSegmentMetrics"
+        trunk:
+          $ref: "#/components/schemas/TrendSegmentMetrics"
+        right_leg:
+          $ref: "#/components/schemas/TrendSegmentMetrics"
+        left_leg:
+          $ref: "#/components/schemas/TrendSegmentMetrics"
+
+    TrendSegmentMetrics:
+      type: object
+      description: Mass and percentage for a body segment
+      properties:
+        mass:
+          type: number
+          format: double
+          description: Mass in kg
+          example: 2.8
+        percentage:
+          type: number
+          format: double
+          description: Percentage of total
+          example: 8.0
+
+    TrendSummary:
+      type: object
+      description: Smart trend recap generated by AI
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectID
+          example: 676a1b2c3d4e5f6g7h8i9j0k
+        user_id:
+          type: string
+          description: Firebase user ID
+          example: firebase_user_uid_123
+        summary_text:
+          type: string
+          description: The AI-generated recap text
+          example: "Great progress! Your weight is stable but you've gained 1.5kg of muscle mass. Keep it up!"
+        last_generated_at:
+          type: string
+          format: date-time
+          description: When this recap was generated
+          example: "2025-12-25T14:30:00Z"
+        included_scan_ids:
+          type: array
+          description: List of scan IDs analyzed for this recap
+          items:
+            type: string
+            example: 676a1b2c3d4e5f6g7h8i9j0k
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "tenant_123"
+        name:
+          type: string
+          example: "House of Metamorfit"
+        logo_url:
+          type: string
+          example: "https://hom.gym/logo.png"
+        ai_settings:
+          $ref: "#/components/schemas/AISettings"
+        created_at:
+          type: string
+          format: date-time
+
+    AISettings:
+      type: object
+      properties:
+        tone:
+          type: string
+          description: "Tone of the AI response (e.g. Encouraging, Strict)"
+          example: "Empathetic and tactical"
+        style:
+          type: string
+          description: "Style of advice (e.g. Detail-oriented, Big picture)"
+          example: "Scientific but accessible"
+        persona:
+          type: string
+          description: "Persona adopted by the AI"
+          example: "Supportive Head Coach"
+
+    User:
+      type: object
+      description: |
+        Unified user in the SaaS platform. One email represents one user who can have multiple roles.
+        Roles determine access and capabilities (e.g., coach, member, admin).
+      properties:
+        id:
+          type: string
+          example: "user_123"
+        firebase_uid:
+          type: string
+          example: "fb_uid_456"
+        email:
+          type: string
+          format: email
+          example: "member@hom.gym"
+        name:
+          type: string
+          example: "John Doe"
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [coach, member, admin]
+          example: ["member"]
+          description: User roles - a user can have multiple roles
+        tenant_id:
+          type: string
+          example: "tenant_123"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserUpdate:
+      type: object
+      description: Fields allowed when updating a user. Roles are managed separately via auth service.
+      properties:
+        firebase_uid:
+          type: string
+          example: "fb_uid_456"
+        email:
+          type: string
+          format: email
+          example: "updated_email@hom.gym"
+        name:
+          type: string
+          example: "Updated Name"
+        tenant_id:
+          type: string
+          example: "tenant_123"
+
+    Coach:
+      type: object
+      description: |
+        Represents a User with the 'coach' role. Returned by coach endpoints for backward compatibility.
+        Internally stored in users collection with roles containing 'coach'.
+      properties:
+        id:
+          type: string
+          example: "coach_123"
+        firebase_uid:
+          type: string
+          example: "fb_uid_coach_789"
+        email:
+          type: string
+          format: email
+          example: "coach@hom.gym"
+        name:
+          type: string
+          example: "Coach Mike"
+        roles:
+          type: array
+          items:
+            type: string
+          example: ["coach"]
+          description: Will always include 'coach' role
+        tenant_id:
+          type: string
+          example: "tenant_123"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CoachUpdate:
+      type: object
+      description: Fields allowed when updating a coach
+      properties:
+        firebase_uid:
+          type: string
+          example: "fb_uid_coach_789"
+        email:
+          type: string
+          format: email
+          example: "updated_coach@hom.gym"
+        name:
+          type: string
+          example: "Updated Coach Mike"
+        tenant_id:
+          type: string
+          example: "tenant_123"
+
+    CoachAssignment:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "assignment_789"
+        coach_id:
+          type: string
+          description: "User ID of the coach"
+          example: "user_profile_123"
+        member_id:
+          type: string
+          description: "FirebaseUID of the member"
+          example: "fb_uid_999"
+        tenant_id:
+          type: string
+          example: "tenant_123"
+        assigned_at:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            error: "invalid request body"
+
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            error: "user not authenticated"
+
+    Forbidden:
+      description: Access denied - you don't own this resource
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            error: "you don't have access to this scan"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            error: "scan not found"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            error: "failed to process request"
