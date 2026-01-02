@@ -82,3 +82,23 @@ func (r *MongoWorkoutSessionRepository) Update(ctx context.Context, session *dom
 	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": oid}, update)
 	return err
 }
+
+// GetSessionsByCoachAndDateRange retrieves all workout sessions for a coach within a date range
+func (r *MongoWorkoutSessionRepository) GetSessionsByCoachAndDateRange(ctx context.Context, coachID string, from, to time.Time) ([]*domain.WorkoutSession, error) {
+	filter := bson.M{
+		"coach_id":   coachID,
+		"created_at": bson.M{"$gte": from, "$lte": to},
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var sessions []*domain.WorkoutSession
+	if err := cursor.All(ctx, &sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}

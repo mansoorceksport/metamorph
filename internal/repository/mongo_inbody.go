@@ -354,3 +354,63 @@ func (r *MongoInBodyRepository) GetLatestTrendSummary(ctx context.Context, userI
 
 	return &summary, nil
 }
+
+// GetRecentScansByMembers retrieves the N most recent scans for multiple members
+// Uses aggregation pipeline for efficient bulk processing
+func (r *MongoInBodyRepository) GetRecentScansByMembers(ctx context.Context, memberIDs []string, limit int) (map[string][]*domain.InBodyRecord, error) {
+	if len(memberIDs) == 0 {
+		return make(map[string][]*domain.InBodyRecord), nil
+	}
+
+	// Convert string IDs to ObjectIDs
+	oids := make([]primitive.ObjectID, 0, len(memberIDs))
+	for _, id := range memberIDs {
+		oid, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			continue
+		}
+		oids = append(oids, oid)
+	}
+
+	if len(oids) == 0 {
+		return make(map[string][]*domain.InBodyRecord), nil
+	}
+
+	// Aggregation pipeline:
+	// 1. Match documents for specified members
+	// 2. Sort by test_date_time descending
+	// 3. Group by user_id and take first N documents
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"user_id": bson.M{"$in": oids}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "test_date_time", Value: -1}}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   "$user_id",
+			"scans": bson.M{"$push": "$$ROOT"},
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"_id":   1,
+			"scans": bson.M{"$slice": bson.A{"$scans", limit}},
+		}}},
+	}
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate scans: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	// Parse aggregation results
+	result := make(map[string][]*domain.InBodyRecord)
+	for cursor.Next(ctx) {
+		var doc struct {
+			ID    primitive.ObjectID     `bson:"_id"`
+			Scans []*domain.InBodyRecord `bson:"scans"`
+		}
+		if err := cursor.Decode(&doc); err != nil {
+			continue
+		}
+		result[doc.ID.Hex()] = doc.Scans
+	}
+
+	return result, nil
+}

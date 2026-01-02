@@ -294,7 +294,7 @@ NOTE: If segmental data is not visible or unclear, use 0.0 and mention it in the
 				errorMsg += fmt.Sprintf(" - Provider error: %s", providerErr)
 			}
 		}
-		return nil, fmt.Errorf(errorMsg)
+		return nil, fmt.Errorf("%s", errorMsg)
 	}
 
 	if len(apiResponse.Choices) == 0 {

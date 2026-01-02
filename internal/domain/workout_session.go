@@ -41,4 +41,6 @@ type WorkoutSessionRepository interface {
 	GetByID(ctx context.Context, id string) (*WorkoutSession, error)
 	GetByScheduleID(ctx context.Context, scheduleID string) (*WorkoutSession, error)
 	Update(ctx context.Context, session *WorkoutSession) error
+	// GetSessionsByCoachAndDateRange retrieves all workout sessions for a coach within a date range
+	GetSessionsByCoachAndDateRange(ctx context.Context, coachID string, from, to time.Time) ([]*WorkoutSession, error)
 }

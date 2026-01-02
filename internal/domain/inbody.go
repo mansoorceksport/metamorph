@@ -143,6 +143,10 @@ type InBodyRepository interface {
 
 	// GetLatestTrendSummary retrieves the most recent trend summary for a user
 	GetLatestTrendSummary(ctx context.Context, userID string) (*TrendSummary, error)
+
+	// GetRecentScansByMembers retrieves the N most recent scans for multiple members
+	// Returns a map of memberID -> [scans] for bulk processing
+	GetRecentScansByMembers(ctx context.Context, memberIDs []string, limit int) (map[string][]*InBodyRecord, error)
 }
 
 // CacheRepository defines the interface for caching operations

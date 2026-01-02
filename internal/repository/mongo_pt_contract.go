@@ -166,3 +166,24 @@ func (r *MongoPTContractRepository) UpdateStatus(ctx context.Context, contractID
 	})
 	return err
 }
+
+// GetLowSessionsByCoach returns active contracts with remaining sessions below threshold
+func (r *MongoPTContractRepository) GetLowSessionsByCoach(ctx context.Context, coachID string, threshold int) ([]*domain.PTContract, error) {
+	filter := bson.M{
+		"coach_id":           coachID,
+		"status":             domain.PackageStatusActive,
+		"remaining_sessions": bson.M{"$lt": threshold, "$gt": 0},
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var contracts []*domain.PTContract
+	if err := cursor.All(ctx, &contracts); err != nil {
+		return nil, err
+	}
+	return contracts, nil
+}

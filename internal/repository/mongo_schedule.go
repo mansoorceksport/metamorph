@@ -162,3 +162,24 @@ func (r *MongoScheduleRepository) CountByContractAndStatus(ctx context.Context, 
 	}
 	return r.collection.CountDocuments(ctx, filter)
 }
+
+// GetAttendanceByCoach fetches all schedules for a coach within the last N days
+func (r *MongoScheduleRepository) GetAttendanceByCoach(ctx context.Context, coachID string, days int) ([]*domain.Schedule, error) {
+	since := time.Now().AddDate(0, 0, -days)
+	filter := bson.M{
+		"coach_id":   coachID,
+		"start_time": bson.M{"$gte": since},
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var schedules []*domain.Schedule
+	if err := cursor.All(ctx, &schedules); err != nil {
+		return nil, err
+	}
+	return schedules, nil
+}

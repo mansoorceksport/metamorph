@@ -10,17 +10,20 @@ type ProHandler struct {
 	ptService        *service.PTService
 	userRepo         domain.UserRepository // To fetch member details
 	analyticsService domain.AnalyticsService
+	dashboardService domain.DashboardService
 }
 
 func NewProHandler(
 	ptService *service.PTService,
 	userRepo domain.UserRepository,
 	analyticsService domain.AnalyticsService,
+	dashboardService domain.DashboardService,
 ) *ProHandler {
 	return &ProHandler{
 		ptService:        ptService,
 		userRepo:         userRepo,
 		analyticsService: analyticsService,
+		dashboardService: dashboardService,
 	}
 }
 
@@ -95,4 +98,17 @@ func (h *ProHandler) GetClientHistory(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(history)
+}
+
+// GetDashboardSummary handles GET /v1/pro/dashboard/summary
+// Returns aggregated analytics for the Coach Command Center
+func (h *ProHandler) GetDashboardSummary(c *fiber.Ctx) error {
+	coachID := c.Locals("userID").(string)
+
+	summary, err := h.dashboardService.GetCoachSummary(c.Context(), coachID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(summary)
 }

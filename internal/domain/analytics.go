@@ -73,3 +73,27 @@ type AnalyticsHistory struct {
 	Progress ProgressSummary `json:"progress"`
 	History  []TrendData     `json:"history"`
 }
+
+// MemberAnalytics represents a single member's analytics data for dashboard cards
+type MemberAnalytics struct {
+	MemberID string  `json:"member_id" bson:"member_id"`
+	Name     string  `json:"name" bson:"name"`
+	Avatar   string  `json:"avatar,omitempty" bson:"avatar,omitempty"`
+	Value    float64 `json:"value" bson:"value"` // Primary metric
+	Label    string  `json:"label" bson:"label"` // e.g., "+1.5kg Muscle"
+	Trend    string  `json:"trend" bson:"trend"` // "rising" | "declining" | "stable"
+}
+
+// DashboardSummary contains five analytics lists for the Coach Command Center
+type DashboardSummary struct {
+	RisingStars   []MemberAnalytics `json:"rising_stars"`
+	ChurnRisk     []MemberAnalytics `json:"churn_risk"`
+	StrengthWins  []MemberAnalytics `json:"strength_wins"`
+	PackageHealth []MemberAnalytics `json:"package_health"`
+	Consistent    []MemberAnalytics `json:"consistent"`
+}
+
+// DashboardService defines the interface for dashboard analytics operations
+type DashboardService interface {
+	GetCoachSummary(ctx context.Context, coachID string) (*DashboardSummary, error)
+}

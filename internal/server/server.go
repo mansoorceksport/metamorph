@@ -77,12 +77,15 @@ func NewApp(deps AppDependencies) *fiber.App {
 	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo)
 	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo)
 
+	// Initialize dashboard service
+	dashboardService := service.NewDashboardService(contractRepo, schedRepo, mongoRepo, workoutSessionRepo, userRepo)
+
 	// Initialize handlers
 	scanHandler := handler.NewScanHandler(scanService, deps.Config.Server.MaxUploadSizeMB)
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, trendService)
 	authHandler := handler.NewAuthHandler(authService)
 	saasHandler := handler.NewSaaSHandler(tenantRepo, userRepo, branchRepo)
-	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService)
+	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
 
@@ -149,6 +152,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	pro.Get("/clients", proHandler.GetClients)
 	pro.Get("/clients/:id/history", proHandler.GetClientHistory)
+	pro.Get("/dashboard/summary", proHandler.GetDashboardSummary)
 
 	pro.Post("/schedules", ptHandler.CreateSchedule)
 	pro.Post("/schedules/:id/complete", ptHandler.CompleteSession)

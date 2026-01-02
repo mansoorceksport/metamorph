@@ -96,6 +96,8 @@ type PTContractRepository interface {
 	GetByTenant(ctx context.Context, tenantID string) ([]*PTContract, error)
 	DecrementSession(ctx context.Context, contractID string) error
 	UpdateStatus(ctx context.Context, contractID string, status string) error
+	// GetLowSessionsByCoach returns contracts with remaining sessions below threshold
+	GetLowSessionsByCoach(ctx context.Context, coachID string, threshold int) ([]*PTContract, error)
 }
 
 type ScheduleRepository interface {
@@ -107,4 +109,6 @@ type ScheduleRepository interface {
 	Update(ctx context.Context, schedule *Schedule) error
 	UpdateStatus(ctx context.Context, id string, status string) error
 	CountByContractAndStatus(ctx context.Context, contractID string, statuses []string) (int64, error)
+	// GetAttendanceByCoach fetches all schedules for a coach within the last N days
+	GetAttendanceByCoach(ctx context.Context, coachID string, days int) ([]*Schedule, error)
 }
