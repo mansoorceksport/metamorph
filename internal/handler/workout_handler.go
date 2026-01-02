@@ -169,7 +169,7 @@ func (h *WorkoutHandler) ManageSessionExercises(c *fiber.Ctx) error {
 	return c.JSON(updated)
 }
 
-// LogSessionSet PATCH /v1/pro/sessions/:id/log
+// LogSessionSet PATCH /v1/pro/sessions/:id/log (legacy index-based)
 func (h *WorkoutHandler) LogSessionSet(c *fiber.Ctx) error {
 	sessionID := c.Params("id")
 	var req struct {
@@ -189,4 +189,52 @@ func (h *WorkoutHandler) LogSessionSet(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "logged"})
+}
+
+// LogSessionSetByULID PATCH /v1/pro/sessions/:id/log-ulid
+// ULID-first atomic log - recommended for multi-device sync
+func (h *WorkoutHandler) LogSessionSetByULID(c *fiber.Ctx) error {
+	sessionID := c.Params("id")
+
+	var req struct {
+		ExerciseULID string `json:"exercise_ulid"`
+		SetLog       struct {
+			ULID      string  `json:"ulid"`
+			SetIndex  int     `json:"set_index"`
+			Weight    float64 `json:"weight"`
+			Reps      int     `json:"reps"`
+			Remarks   string  `json:"remarks"`
+			Completed bool    `json:"completed"`
+		} `json:"set_log"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	// Validate ULID format (26-char Base32)
+	if len(req.ExerciseULID) != 26 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid exercise_ulid format (must be 26 characters)"})
+	}
+	if len(req.SetLog.ULID) != 26 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid set_log.ulid format (must be 26 characters)"})
+	}
+
+	setLog := &domain.SetLog{
+		ULID:      req.SetLog.ULID,
+		SetIndex:  req.SetLog.SetIndex,
+		Weight:    req.SetLog.Weight,
+		Reps:      req.SetLog.Reps,
+		Remarks:   req.SetLog.Remarks,
+		Completed: req.SetLog.Completed,
+	}
+
+	if err := h.workoutService.LogSetByULID(c.Context(), sessionID, req.ExerciseULID, setLog); err != nil {
+		if err == domain.ErrExerciseULIDNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"message": "logged", "set_ulid": setLog.ULID})
 }

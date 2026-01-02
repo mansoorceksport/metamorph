@@ -7,11 +7,13 @@ import (
 )
 
 var (
-	ErrSessionNotFound = errors.New("workout session not found")
+	ErrSessionNotFound      = errors.New("workout session not found")
+	ErrExerciseULIDNotFound = errors.New("exercise ULID not found in session")
 )
 
 type SetLog struct {
-	SetIndex  int     `json:"set_index" bson:"set_index"` // 1-based index (1, 2, 3)
+	ULID      string  `json:"ulid" bson:"ulid"`           // Unique identifier for atomic operations
+	SetIndex  int     `json:"set_index" bson:"set_index"` // 1-based index for display (1, 2, 3)
 	Weight    float64 `json:"weight" bson:"weight"`
 	Reps      int     `json:"reps" bson:"reps"`
 	Remarks   string  `json:"remarks" bson:"remarks"`
@@ -19,6 +21,7 @@ type SetLog struct {
 }
 
 type PlannedExercise struct {
+	ULID       string    `json:"ulid" bson:"ulid"` // Unique identifier for targeting
 	ExerciseID string    `json:"exercise_id" bson:"exercise_id"`
 	Name       string    `json:"name" bson:"name"` // Denormalized for easy display
 	Sets       []*SetLog `json:"sets" bson:"sets"`
@@ -43,4 +46,6 @@ type WorkoutSessionRepository interface {
 	Update(ctx context.Context, session *WorkoutSession) error
 	// GetSessionsByCoachAndDateRange retrieves all workout sessions for a coach within a date range
 	GetSessionsByCoachAndDateRange(ctx context.Context, coachID string, from, to time.Time) ([]*WorkoutSession, error)
+	// UpsertSetLog atomically updates or inserts a set log using ULID-based targeting
+	UpsertSetLog(ctx context.Context, sessionID, exerciseULID string, setLog *SetLog) error
 }

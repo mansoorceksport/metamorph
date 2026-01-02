@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
+	"github.com/oklog/ulid/v2"
 )
 
 type WorkoutService struct {
@@ -29,6 +32,11 @@ func NewWorkoutService(
 	}
 }
 
+// generateULID creates a new ULID string
+func generateULID() string {
+	return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+}
+
 // InitializeSession creates a WorkoutSession from a Template linked to a Schedule
 func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID string, templateID string) (*domain.WorkoutSession, error) {
 	// 1. Verify Schedule
@@ -49,7 +57,7 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 		return nil, fmt.Errorf("invalid template: %w", err)
 	}
 
-	// 4. Hydrate Exercises
+	// 4. Hydrate Exercises with ULIDs
 	var planned []*domain.PlannedExercise
 	for _, exID := range template.ExerciseIDs {
 		ex, err := s.exerciseRepo.GetByID(ctx, exID)
@@ -59,10 +67,11 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 			continue
 		}
 
-		// Create 3 default empty sets
+		// Create 3 default empty sets with ULIDs
 		defaultSets := make([]*domain.SetLog, 3)
 		for i := 0; i < 3; i++ {
 			defaultSets[i] = &domain.SetLog{
+				ULID:     generateULID(),
 				SetIndex: i + 1,
 				Reps:     0,
 				Weight:   0,
@@ -70,6 +79,7 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 		}
 
 		planned = append(planned, &domain.PlannedExercise{
+			ULID:       generateULID(),
 			ExerciseID: ex.ID,
 			Name:       ex.Name,
 			Sets:       defaultSets,
@@ -105,13 +115,17 @@ func (s *WorkoutService) AddExerciseToSession(ctx context.Context, sessionID str
 		return err
 	}
 
-	// Default 3 sets
+	// Default 3 sets with ULIDs
 	sets := make([]*domain.SetLog, 3)
 	for i := 0; i < 3; i++ {
-		sets[i] = &domain.SetLog{SetIndex: i + 1}
+		sets[i] = &domain.SetLog{
+			ULID:     generateULID(),
+			SetIndex: i + 1,
+		}
 	}
 
 	session.PlannedExercises = append(session.PlannedExercises, &domain.PlannedExercise{
+		ULID:       generateULID(),
 		ExerciseID: ex.ID,
 		Name:       ex.Name,
 		Sets:       sets,
@@ -137,7 +151,7 @@ func (s *WorkoutService) RemoveExerciseFromSession(ctx context.Context, sessionI
 	return s.sessionRepo.Update(ctx, session)
 }
 
-// LogSet updates a specific set
+// LogSet updates a specific set (legacy index-based - kept for backward compatibility)
 func (s *WorkoutService) LogSet(ctx context.Context, sessionID string, exerciseIndex int, setIndex int, weight float64, reps int, remarks string) error {
 	session, err := s.sessionRepo.GetByID(ctx, sessionID)
 	if err != nil {
@@ -150,9 +164,6 @@ func (s *WorkoutService) LogSet(ctx context.Context, sessionID string, exerciseI
 
 	ex := session.PlannedExercises[exerciseIndex]
 	if setIndex < 0 || setIndex >= len(ex.Sets) {
-		// Auto-expand sets if index > length?
-		// For now, strict bounds or AddSet logic.
-		// User requirement "Update reps/weight... using Atomic Index-based" implies existing.
 		return errors.New("invalid set index")
 	}
 
@@ -162,11 +173,12 @@ func (s *WorkoutService) LogSet(ctx context.Context, sessionID string, exerciseI
 	set.Remarks = remarks
 	set.Completed = true
 
-	// Note: For truly atomic updates in Mongo we'd use array filters updateOne("planned_exercises.<idx>.sets.<idx>").
-	// Using generic Update (replace doc) is simpler for V1 but has race conditions if multiple ppl edit same session.
-	// Assuming single coach editing: safe enough.
-
 	return s.sessionRepo.Update(ctx, session)
+}
+
+// LogSetByULID atomically updates or inserts a set using ULID-based targeting
+func (s *WorkoutService) LogSetByULID(ctx context.Context, sessionID, exerciseULID string, setLog *domain.SetLog) error {
+	return s.sessionRepo.UpsertSetLog(ctx, sessionID, exerciseULID, setLog)
 }
 
 func (s *WorkoutService) GetSession(ctx context.Context, id string) (*domain.WorkoutSession, error) {
