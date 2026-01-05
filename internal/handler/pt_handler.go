@@ -224,6 +224,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	}
 
 	var req struct {
+		ClientID    string    `json:"client_id"`    // Frontend ULID for identity handshake
 		ContractID  string    `json:"contract_id"`  // Optional if member_id provided
 		MemberID    string    `json:"member_id"`    // Required
 		StartTime   time.Time `json:"start_time"`   // Required
@@ -264,6 +265,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	}
 
 	schedule := &domain.Schedule{
+		ClientID:    req.ClientID, // Store frontend ULID for dual-identity
 		ContractID:  contractID,
 		CoachID:     userID, // The creator (Pro) is the coach
 		MemberID:    req.MemberID,
@@ -288,7 +290,21 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(schedule)
+	// Return schedule with client_id for dual-identity handshake
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"id":           schedule.ID,
+		"client_id":    req.ClientID,
+		"contract_id":  schedule.ContractID,
+		"coach_id":     schedule.CoachID,
+		"member_id":    schedule.MemberID,
+		"tenant_id":    schedule.TenantID,
+		"branch_id":    schedule.BranchID,
+		"start_time":   schedule.StartTime,
+		"end_time":     schedule.EndTime,
+		"session_goal": schedule.SessionGoal,
+		"remarks":      schedule.Remarks,
+		"status":       schedule.Status,
+	})
 }
 
 // RescheduleSession PATCH /v1/schedules/:id/reschedule

@@ -13,17 +13,20 @@ type PTService struct {
 	pkgRepo      domain.PTPackageRepository
 	contractRepo domain.PTContractRepository
 	schedRepo    domain.ScheduleRepository
+	sessionRepo  domain.WorkoutSessionRepository // For cascade delete of planned exercises
 }
 
 func NewPTService(
 	pkgRepo domain.PTPackageRepository,
 	contractRepo domain.PTContractRepository,
 	schedRepo domain.ScheduleRepository,
+	sessionRepo domain.WorkoutSessionRepository,
 ) *PTService {
 	return &PTService{
 		pkgRepo:      pkgRepo,
 		contractRepo: contractRepo,
 		schedRepo:    schedRepo,
+		sessionRepo:  sessionRepo,
 	}
 }
 
@@ -227,5 +230,9 @@ func (s *PTService) GetSchedule(ctx context.Context, id string) (*domain.Schedul
 }
 
 func (s *PTService) DeleteSchedule(ctx context.Context, id string) error {
+	// Cascade delete: first remove all planned exercises for this schedule
+	if err := s.sessionRepo.DeletePlannedExercisesBySchedule(ctx, id); err != nil {
+		return fmt.Errorf("failed to delete planned exercises: %w", err)
+	}
 	return s.schedRepo.Delete(ctx, id)
 }

@@ -143,19 +143,36 @@ func (h *WorkoutHandler) InitializeSession(c *fiber.Ctx) error {
 func (h *WorkoutHandler) AddExercise(c *fiber.Ctx) error {
 	scheduleID := c.Params("schedule_id")
 	var req struct {
-		ExerciseID string `json:"exercise_id"`
-		// target sets/reps could be passed here too if needed
+		ClientID    string `json:"client_id"` // Frontend ULID for identity handshake
+		ExerciseID  string `json:"exercise_id"`
+		TargetSets  int    `json:"target_sets"`
+		TargetReps  int    `json:"target_reps"`
+		RestSeconds int    `json:"rest_seconds"`
+		Notes       string `json:"notes"`
+		Order       int    `json:"order"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	planned, err := h.workoutService.AddExerciseToSession(c.Context(), scheduleID, req.ExerciseID)
+	planned, err := h.workoutService.AddExerciseToSession(c.Context(), scheduleID, req.ExerciseID, req.ClientID, req.TargetSets, req.TargetReps, req.RestSeconds, req.Notes, req.Order)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	// Return the FULL planned object including the generated _id
-	return c.Status(fiber.StatusCreated).JSON(planned)
+
+	// Return planned exercise with client_id for dual-identity handshake
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"id":           planned.ID,
+		"client_id":    req.ClientID,
+		"schedule_id":  planned.ScheduleID,
+		"exercise_id":  planned.ExerciseID,
+		"name":         planned.Name,
+		"target_sets":  planned.TargetSets,
+		"target_reps":  planned.TargetReps,
+		"rest_seconds": planned.RestSeconds,
+		"notes":        planned.Notes,
+		"order":        planned.Order,
+	})
 }
 
 // RemoveExercise DELETE /v1/pro/exercises/:id

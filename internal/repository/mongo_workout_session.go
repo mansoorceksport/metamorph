@@ -256,3 +256,9 @@ func (r *MongoWorkoutSessionRepository) RemovePlannedExercise(ctx context.Contex
 	_, err = r.planCollection.DeleteOne(ctx, bson.M{"_id": oid})
 	return err
 }
+
+// DeletePlannedExercisesBySchedule deletes all planned exercises for a schedule (cascade delete)
+func (r *MongoWorkoutSessionRepository) DeletePlannedExercisesBySchedule(ctx context.Context, scheduleID string) error {
+	_, err := r.planCollection.DeleteMany(ctx, bson.M{"schedule_id": scheduleID})
+	return err
+}

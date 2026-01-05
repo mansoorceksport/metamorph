@@ -74,7 +74,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	// Initialize auth service
 	authService := service.NewAuthService(userRepo, tenantRepo, deps.AuthClient, deps.Config.JWT.Secret)
-	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo)
+	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo)
 	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo)
 
 	// Initialize dashboard service

@@ -111,23 +111,75 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 	return s.GetSession(ctx, session.ID)
 }
 
+// resolveScheduleID accepts either MongoDB ObjectID or ULID and resolves to the schedule's MongoDB ID
+// This handles the case where frontend sends ULID before schedule sync completes
+func (s *WorkoutService) resolveScheduleID(ctx context.Context, idOrClientID string) (string, error) {
+	// Check if it's a valid MongoDB ObjectID (24 hex chars, all lowercase hex)
+	isMongoID := len(idOrClientID) == 24
+	if isMongoID {
+		for _, c := range idOrClientID {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				isMongoID = false
+				break
+			}
+		}
+	}
+
+	if isMongoID {
+		// Try to get by MongoDB ObjectID first
+		schedule, err := s.scheduleRepo.GetByID(ctx, idOrClientID)
+		if err == nil {
+			return schedule.ID, nil
+		}
+		// If not found by ID, fall through to try client_id
+	}
+
+	// Try to get by client_id (ULID)
+	schedule, err := s.scheduleRepo.GetByClientID(ctx, idOrClientID)
+	if err != nil {
+		return "", fmt.Errorf("schedule not found for ID/ULID: %s", idOrClientID)
+	}
+	return schedule.ID, nil
+}
+
 // AddExerciseToSession adds an exercise dynamically (at end) - RETURNS the added exercise
-func (s *WorkoutService) AddExerciseToSession(ctx context.Context, scheduleID string, exerciseID string) (*domain.PlannedExercise, error) {
-	// Calculate new order by counting existing planned exercises (resolves "session not found" on new schedules)
-	count, err := s.sessionRepo.CountPlannedExercises(ctx, scheduleID)
+// clientID is the frontend ULID for dual-identity handshake
+// targetSets, targetReps, restSeconds, notes, order are passed from the frontend
+func (s *WorkoutService) AddExerciseToSession(ctx context.Context, scheduleID string, exerciseID string, clientID string, targetSets int, targetReps int, restSeconds int, notes string, order int) (*domain.PlannedExercise, error) {
+	// Resolve scheduleID (handles both MongoDB ObjectID and frontend ULID)
+	resolvedScheduleID, err := s.resolveScheduleID(ctx, scheduleID)
 	if err != nil {
 		return nil, err
 	}
-	newOrder := int(count) + 1
+
+	// If order not provided, calculate from count
+	if order == 0 {
+		count, err := s.sessionRepo.CountPlannedExercises(ctx, resolvedScheduleID)
+		if err != nil {
+			return nil, err
+		}
+		order = int(count) + 1
+	}
 
 	ex, err := s.exerciseRepo.GetByID(ctx, exerciseID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Default 3 sets with ULIDs
-	sets := make([]*domain.SetLog, 3)
-	for i := 0; i < 3; i++ {
+	// Use defaults if not provided
+	if targetSets == 0 {
+		targetSets = 3
+	}
+	if targetReps == 0 {
+		targetReps = 10
+	}
+	if restSeconds == 0 {
+		restSeconds = 60
+	}
+
+	// Create sets with ULIDs based on target count
+	sets := make([]*domain.SetLog, targetSets)
+	for i := 0; i < targetSets; i++ {
 		sets[i] = &domain.SetLog{
 			ULID:     generateULID(),
 			SetIndex: i + 1,
@@ -135,14 +187,16 @@ func (s *WorkoutService) AddExerciseToSession(ctx context.Context, scheduleID st
 	}
 
 	planned := &domain.PlannedExercise{
-		ScheduleID:  scheduleID,
+		ClientID:    clientID,           // Store frontend ULID for dual-identity
+		ScheduleID:  resolvedScheduleID, // Use resolved MongoDB ObjectID
 		ExerciseID:  ex.ID,
 		Name:        ex.Name,
 		Sets:        sets,
-		Order:       newOrder,
-		TargetSets:  3,
-		TargetReps:  10,
-		RestSeconds: 60,
+		Order:       order,
+		TargetSets:  targetSets,
+		TargetReps:  targetReps,
+		RestSeconds: restSeconds,
+		Notes:       notes,
 	}
 
 	if err := s.sessionRepo.AddPlannedExercise(ctx, planned); err != nil {

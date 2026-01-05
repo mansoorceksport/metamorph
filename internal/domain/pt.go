@@ -66,6 +66,7 @@ type PTContract struct {
 // Schedule represents a single PT session, linked to a Contract
 type Schedule struct {
 	ID          string    `json:"id" bson:"_id,omitempty"`
+	ClientID    string    `json:"client_id,omitempty" bson:"client_id,omitempty"` // Frontend ULID for dual-identity handshake
 	TenantID    string    `json:"tenant_id" bson:"tenant_id"`
 	BranchID    string    `json:"branch_id" bson:"branch_id"`
 	ContractID  string    `json:"contract_id" bson:"contract_id"` // Replaces PackageID reference
@@ -114,6 +115,7 @@ type PTContractRepository interface {
 type ScheduleRepository interface {
 	Create(ctx context.Context, schedule *Schedule) error
 	GetByID(ctx context.Context, id string) (*Schedule, error)
+	GetByClientID(ctx context.Context, clientID string) (*Schedule, error) // Lookup by frontend ULID
 	GetByCoach(ctx context.Context, coachID string, from, to time.Time) ([]*Schedule, error)
 	GetByMember(ctx context.Context, memberID string, from, to time.Time) ([]*Schedule, error)
 	List(ctx context.Context, tenantID string, filterOpts map[string]interface{}) ([]*Schedule, error)

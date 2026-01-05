@@ -53,6 +53,19 @@ func (r *MongoScheduleRepository) GetByID(ctx context.Context, id string) (*doma
 	return &schedule, nil
 }
 
+// GetByClientID looks up a schedule by its frontend client_id (ULID)
+func (r *MongoScheduleRepository) GetByClientID(ctx context.Context, clientID string) (*domain.Schedule, error) {
+	var schedule domain.Schedule
+	err := r.collection.FindOne(ctx, bson.M{"client_id": clientID}).Decode(&schedule)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, domain.ErrScheduleNotFound
+		}
+		return nil, err
+	}
+	return &schedule, nil
+}
+
 func (r *MongoScheduleRepository) GetByCoach(ctx context.Context, coachID string, from, to time.Time) ([]*domain.Schedule, error) {
 	filter := bson.M{
 		"coach_id": coachID,

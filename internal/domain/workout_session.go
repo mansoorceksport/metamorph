@@ -22,7 +22,8 @@ type SetLog struct {
 
 type PlannedExercise struct {
 	ID          string    `json:"id" bson:"_id,omitempty"`
-	ScheduleID  string    `json:"schedule_id" bson:"schedule_id"`
+	ClientID    string    `json:"client_id,omitempty" bson:"client_id,omitempty"` // Frontend ULID for dual-identity handshake
+	ScheduleID  string    `json:"schedule_id" bson:"schedule_id"`                 // Backend MongoDB ObjectID of the schedule
 	ExerciseID  string    `json:"exercise_id" bson:"exercise_id"`
 	Name        string    `json:"name" bson:"name"`
 	TargetSets  int       `json:"target_sets" bson:"target_sets"`
@@ -58,6 +59,8 @@ type WorkoutSessionRepository interface {
 	RemovePlannedExercise(ctx context.Context, id string) error
 	// UpdatePlannedExercise updates a planned exercise
 	UpdatePlannedExercise(ctx context.Context, exercise *PlannedExercise) error
+	// DeletePlannedExercisesBySchedule deletes all planned exercises for a schedule (cascade delete)
+	DeletePlannedExercisesBySchedule(ctx context.Context, scheduleID string) error
 	CountPlannedExercises(ctx context.Context, scheduleID string) (int64, error)
 	// UpsertSetLog atomically updates or inserts a set log using ULID-based targeting
 	UpsertSetLog(ctx context.Context, sessionID, exerciseID string, setLog *SetLog) error
