@@ -139,66 +139,70 @@ func (h *WorkoutHandler) InitializeSession(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(session)
 }
 
-// ManageSessionExercises PATCH /v1/pro/sessions/:id/exercises
-// Body: { "action": "add"|"remove", "exercise_id": "...", "index": ... }
-func (h *WorkoutHandler) ManageSessionExercises(c *fiber.Ctx) error {
-	sessionID := c.Params("id")
+// AddExercise POST /v1/pro/schedules/:schedule_id/exercises
+func (h *WorkoutHandler) AddExercise(c *fiber.Ctx) error {
+	scheduleID := c.Params("schedule_id")
 	var req struct {
-		Action     string `json:"action"`      // "add", "remove"
-		ExerciseID string `json:"exercise_id"` // required for add
-		Index      int    `json:"index"`       // required for remove
+		ExerciseID string `json:"exercise_id"`
+		// target sets/reps could be passed here too if needed
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	if req.Action == "add" {
-		if err := h.workoutService.AddExerciseToSession(c.Context(), sessionID, req.ExerciseID); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-	} else if req.Action == "remove" {
-		if err := h.workoutService.RemoveExerciseFromSession(c.Context(), sessionID, req.Index); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-	} else {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid action"})
-	}
-
-	// Return updated session?
-	updated, _ := h.workoutService.GetSession(c.Context(), sessionID)
-	return c.JSON(updated)
-}
-
-// LogSessionSet PATCH /v1/pro/sessions/:id/log (legacy index-based)
-func (h *WorkoutHandler) LogSessionSet(c *fiber.Ctx) error {
-	sessionID := c.Params("id")
-	var req struct {
-		ExerciseIndex int     `json:"exercise_index"`
-		SetIndex      int     `json:"set_index"` // 0-based relative to array, OR 1-based domain? Service uses array index logic.
-		Weight        float64 `json:"weight"`
-		Reps          int     `json:"reps"`
-		Remarks       string  `json:"remarks"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
-	}
-
-	// Assuming SetIndex in body is 0-based for array access in service
-	if err := h.workoutService.LogSet(c.Context(), sessionID, req.ExerciseIndex, req.SetIndex, req.Weight, req.Reps, req.Remarks); err != nil {
+	planned, err := h.workoutService.AddExerciseToSession(c.Context(), scheduleID, req.ExerciseID)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+	// Return the FULL planned object including the generated _id
+	return c.Status(fiber.StatusCreated).JSON(planned)
+}
 
-	return c.JSON(fiber.Map{"message": "logged"})
+// RemoveExercise DELETE /v1/pro/exercises/:id
+func (h *WorkoutHandler) RemoveExercise(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if err := h.workoutService.RemovePlannedExercise(c.Context(), id); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"message": "deleted"})
+}
+
+// UpdatePlannedExercise PUT /v1/pro/exercises/:id
+func (h *WorkoutHandler) UpdatePlannedExercise(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var req struct {
+		TargetSets  int    `json:"target_sets"`
+		TargetReps  int    `json:"target_reps"`
+		RestSeconds int    `json:"rest_seconds"`
+		Notes       string `json:"notes"`
+		Order       int    `json:"order"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	ex := &domain.PlannedExercise{
+		ID:          id,
+		TargetSets:  req.TargetSets,
+		TargetReps:  req.TargetReps,
+		RestSeconds: req.RestSeconds,
+		Notes:       req.Notes,
+		Order:       req.Order,
+	}
+
+	if err := h.workoutService.UpdatePlannedExercise(c.Context(), ex); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"message": "updated"})
 }
 
 // LogSessionSetByULID PATCH /v1/pro/sessions/:id/log-ulid
-// ULID-first atomic log - recommended for multi-device sync
 func (h *WorkoutHandler) LogSessionSetByULID(c *fiber.Ctx) error {
 	sessionID := c.Params("id")
 
 	var req struct {
-		ExerciseULID string `json:"exercise_ulid"`
-		SetLog       struct {
+		ExerciseID string `json:"exercise_ulid"` // Legacy param name from frontend, now maps to _id
+		SetLog     struct {
 			ULID      string  `json:"ulid"`
 			SetIndex  int     `json:"set_index"`
 			Weight    float64 `json:"weight"`
@@ -212,14 +216,6 @@ func (h *WorkoutHandler) LogSessionSetByULID(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	// Validate ULID format (26-char Base32)
-	if len(req.ExerciseULID) != 26 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid exercise_ulid format (must be 26 characters)"})
-	}
-	if len(req.SetLog.ULID) != 26 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid set_log.ulid format (must be 26 characters)"})
-	}
-
 	setLog := &domain.SetLog{
 		ULID:      req.SetLog.ULID,
 		SetIndex:  req.SetLog.SetIndex,
@@ -229,7 +225,8 @@ func (h *WorkoutHandler) LogSessionSetByULID(c *fiber.Ctx) error {
 		Completed: req.SetLog.Completed,
 	}
 
-	if err := h.workoutService.LogSetByULID(c.Context(), sessionID, req.ExerciseULID, setLog); err != nil {
+	// req.ExerciseID matches "exercise_ulid" json tag which frontend sends safely
+	if err := h.workoutService.LogSetByULID(c.Context(), sessionID, req.ExerciseID, setLog); err != nil {
 		if err == domain.ErrExerciseULIDNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 		}

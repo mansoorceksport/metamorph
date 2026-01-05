@@ -21,10 +21,16 @@ type SetLog struct {
 }
 
 type PlannedExercise struct {
-	ULID       string    `json:"ulid" bson:"ulid"` // Unique identifier for targeting
-	ExerciseID string    `json:"exercise_id" bson:"exercise_id"`
-	Name       string    `json:"name" bson:"name"` // Denormalized for easy display
-	Sets       []*SetLog `json:"sets" bson:"sets"`
+	ID          string    `json:"id" bson:"_id,omitempty"`
+	ScheduleID  string    `json:"schedule_id" bson:"schedule_id"`
+	ExerciseID  string    `json:"exercise_id" bson:"exercise_id"`
+	Name        string    `json:"name" bson:"name"`
+	TargetSets  int       `json:"target_sets" bson:"target_sets"`
+	TargetReps  int       `json:"target_reps" bson:"target_reps"`
+	RestSeconds int       `json:"rest_seconds" bson:"rest_seconds"`
+	Notes       string    `json:"notes" bson:"notes"`
+	Order       int       `json:"order" bson:"order"`
+	Sets        []*SetLog `json:"sets" bson:"sets"` // Logs for execution
 }
 
 type WorkoutSession struct {
@@ -46,6 +52,13 @@ type WorkoutSessionRepository interface {
 	Update(ctx context.Context, session *WorkoutSession) error
 	// GetSessionsByCoachAndDateRange retrieves all workout sessions for a coach within a date range
 	GetSessionsByCoachAndDateRange(ctx context.Context, coachID string, from, to time.Time) ([]*WorkoutSession, error)
+	// AddPlannedExercise adds a planned exercise to the session's plan
+	AddPlannedExercise(ctx context.Context, exercise *PlannedExercise) error
+	// RemovePlannedExercise removes a planned exercise by its ID
+	RemovePlannedExercise(ctx context.Context, id string) error
+	// UpdatePlannedExercise updates a planned exercise
+	UpdatePlannedExercise(ctx context.Context, exercise *PlannedExercise) error
+	CountPlannedExercises(ctx context.Context, scheduleID string) (int64, error)
 	// UpsertSetLog atomically updates or inserts a set log using ULID-based targeting
-	UpsertSetLog(ctx context.Context, sessionID, exerciseULID string, setLog *SetLog) error
+	UpsertSetLog(ctx context.Context, sessionID, exerciseID string, setLog *SetLog) error
 }

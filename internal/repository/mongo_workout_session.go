@@ -13,18 +13,25 @@ import (
 )
 
 type MongoWorkoutSessionRepository struct {
-	collection *mongo.Collection
+	collection     *mongo.Collection
+	planCollection *mongo.Collection
 }
 
 func NewMongoWorkoutSessionRepository(db *mongo.Database) *MongoWorkoutSessionRepository {
 	return &MongoWorkoutSessionRepository{
-		collection: db.Collection("workout_sessions"),
+		collection:     db.Collection("workout_sessions"),
+		planCollection: db.Collection("planned_exercises"),
 	}
 }
 
 func (r *MongoWorkoutSessionRepository) Create(ctx context.Context, session *domain.WorkoutSession) error {
 	session.CreatedAt = time.Now()
 	session.UpdatedAt = time.Now()
+
+	// We don't store PlannedExercises in the session document anymore
+	// But we might want to ensure they are saved if provided?
+	// The Service InitializeSession separates them now.
+	// So we just save the session strictly.
 
 	result, err := r.collection.InsertOne(ctx, session)
 	if err != nil {
@@ -51,6 +58,12 @@ func (r *MongoWorkoutSessionRepository) GetByID(ctx context.Context, id string) 
 		}
 		return nil, err
 	}
+
+	// Inflate PlannedExercises
+	if err := r.loadPlannedExercises(ctx, &session); err != nil {
+		return nil, err
+	}
+
 	return &session, nil
 }
 
@@ -63,7 +76,28 @@ func (r *MongoWorkoutSessionRepository) GetByScheduleID(ctx context.Context, sch
 		}
 		return nil, err
 	}
+
+	// Inflate PlannedExercises
+	if err := r.loadPlannedExercises(ctx, &session); err != nil {
+		return nil, err
+	}
+
 	return &session, nil
+}
+
+func (r *MongoWorkoutSessionRepository) loadPlannedExercises(ctx context.Context, session *domain.WorkoutSession) error {
+	cursor, err := r.planCollection.Find(ctx, bson.M{"schedule_id": session.ScheduleID}, options.Find().SetSort(bson.M{"order": 1}))
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+
+	var exercises []*domain.PlannedExercise
+	if err := cursor.All(ctx, &exercises); err != nil {
+		return err
+	}
+	session.PlannedExercises = exercises
+	return nil
 }
 
 func (r *MongoWorkoutSessionRepository) Update(ctx context.Context, session *domain.WorkoutSession) error {
@@ -75,8 +109,8 @@ func (r *MongoWorkoutSessionRepository) Update(ctx context.Context, session *dom
 
 	update := bson.M{
 		"$set": bson.M{
-			"planned_exercises": session.PlannedExercises,
-			"updated_at":        session.UpdatedAt,
+			// "planned_exercises" is no longer here
+			"updated_at": session.UpdatedAt,
 		},
 	}
 
@@ -101,74 +135,124 @@ func (r *MongoWorkoutSessionRepository) GetSessionsByCoachAndDateRange(ctx conte
 	if err := cursor.All(ctx, &sessions); err != nil {
 		return nil, err
 	}
+
+	// TODO: Use $lookup aggregation for performance instead of N+1?
+	// For now, simple loop is fine as batch size is small (filtered by date)
+	for _, s := range sessions {
+		_ = r.loadPlannedExercises(ctx, s) // ignore error?
+	}
+
 	return sessions, nil
 }
 
-// UpsertSetLog atomically updates or inserts a set log using ULID-based targeting
-// Uses MongoDB arrayFilters for precise nested array updates
-func (r *MongoWorkoutSessionRepository) UpsertSetLog(ctx context.Context, sessionID, exerciseULID string, setLog *domain.SetLog) error {
-	oid, err := primitive.ObjectIDFromHex(sessionID)
+// UpdatePlannedExercise updates a planned exercise
+func (r *MongoWorkoutSessionRepository) UpdatePlannedExercise(ctx context.Context, exercise *domain.PlannedExercise) error {
+	oid, err := primitive.ObjectIDFromHex(exercise.ID)
 	if err != nil {
 		return domain.ErrInvalidID
 	}
 
-	// First, try to update an existing set with the same ULID
+	update := bson.M{
+		"$set": bson.M{
+			"target_sets":  exercise.TargetSets,
+			"target_reps":  exercise.TargetReps,
+			"rest_seconds": exercise.RestSeconds,
+			"notes":        exercise.Notes,
+			//"order":        exercise.Order, // Order changes might need reordering logic, explicit separate method? For now allow update.
+		},
+	}
+
+	result, err := r.planCollection.UpdateOne(ctx, bson.M{"_id": oid}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return domain.ErrSessionNotFound // Reuse not found error or specific one
+	}
+	return nil
+}
+
+// CountPlannedExercises counts the number of planned exercises for a schedule
+func (r *MongoWorkoutSessionRepository) CountPlannedExercises(ctx context.Context, scheduleID string) (int64, error) {
+	return r.planCollection.CountDocuments(ctx, bson.M{"schedule_id": scheduleID})
+}
+
+// UpsertSetLog atomically updates or inserts a set log using ULID-based targeting
+// Targets 'planned_exercises' collection directly using updated schema
+func (r *MongoWorkoutSessionRepository) UpsertSetLog(ctx context.Context, sessionID, exerciseID string, setLog *domain.SetLog) error {
+	// exerciseID is now the _id of the PlannedExercise document
+	oid, err := primitive.ObjectIDFromHex(exerciseID)
+	if err != nil {
+		return domain.ErrInvalidID
+	}
+
 	filter := bson.M{
-		"_id":                    oid,
-		"planned_exercises.ulid": exerciseULID,
+		"_id": oid,
 	}
 
 	// Update existing set using arrayFilters
 	update := bson.M{
 		"$set": bson.M{
-			"planned_exercises.$[ex].sets.$[set].weight":    setLog.Weight,
-			"planned_exercises.$[ex].sets.$[set].reps":      setLog.Reps,
-			"planned_exercises.$[ex].sets.$[set].remarks":   setLog.Remarks,
-			"planned_exercises.$[ex].sets.$[set].completed": setLog.Completed,
-			"planned_exercises.$[ex].sets.$[set].set_index": setLog.SetIndex,
-			"updated_at": time.Now(),
+			"sets.$[set].weight":    setLog.Weight,
+			"sets.$[set].reps":      setLog.Reps,
+			"sets.$[set].remarks":   setLog.Remarks,
+			"sets.$[set].completed": setLog.Completed,
+			"sets.$[set].set_index": setLog.SetIndex,
 		},
 	}
 
 	arrayFilters := options.Update().SetArrayFilters(options.ArrayFilters{
 		Filters: []interface{}{
-			bson.M{"ex.ulid": exerciseULID},
-			bson.M{"set.ulid": setLog.ULID},
+			bson.M{"set.ulid": setLog.ULID}, // SetLog still uses ULID for identity within array
 		},
 	})
 
-	result, err := r.collection.UpdateOne(ctx, filter, update, arrayFilters)
+	result, err := r.planCollection.UpdateOne(ctx, filter, update, arrayFilters)
 	if err != nil {
 		return fmt.Errorf("failed to update set: %w", err)
 	}
 
-	// If no document matched, exercise ULID doesn't exist
 	if result.MatchedCount == 0 {
 		return domain.ErrExerciseULIDNotFound
 	}
 
-	// If set was not modified (ULID not found), push new set
 	if result.ModifiedCount == 0 {
+		// Push new set if not found
 		pushUpdate := bson.M{
 			"$push": bson.M{
-				"planned_exercises.$[ex].sets": setLog,
-			},
-			"$set": bson.M{
-				"updated_at": time.Now(),
+				"sets": setLog,
 			},
 		}
-
-		pushArrayFilters := options.Update().SetArrayFilters(options.ArrayFilters{
-			Filters: []interface{}{
-				bson.M{"ex.ulid": exerciseULID},
-			},
-		})
-
-		_, err = r.collection.UpdateOne(ctx, filter, pushUpdate, pushArrayFilters)
+		_, err = r.planCollection.UpdateOne(ctx, filter, pushUpdate)
 		if err != nil {
 			return fmt.Errorf("failed to push new set: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func (r *MongoWorkoutSessionRepository) AddPlannedExercise(ctx context.Context, exercise *domain.PlannedExercise) error {
+	// Ensure schedule_id is present
+	if exercise.ScheduleID == "" {
+		return fmt.Errorf("schedule_id required")
+	}
+
+	res, err := r.planCollection.InsertOne(ctx, exercise)
+	if err != nil {
+		return err
+	}
+	if oid, ok := res.InsertedID.(primitive.ObjectID); ok {
+		exercise.ID = oid.Hex()
+	}
+	return nil
+}
+
+func (r *MongoWorkoutSessionRepository) RemovePlannedExercise(ctx context.Context, id string) error {
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return domain.ErrInvalidID
+	}
+	_, err = r.planCollection.DeleteOne(ctx, bson.M{"_id": oid})
+	return err
 }

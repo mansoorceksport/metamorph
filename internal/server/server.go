@@ -287,9 +287,11 @@ func NewApp(deps AppDependencies) *fiber.App {
 	// ===========================================
 	// Added to existing 'pro' group
 	pro.Post("/sessions/initialize", workoutHandler.InitializeSession)
-	pro.Patch("/sessions/:id/exercises", workoutHandler.ManageSessionExercises)
-	pro.Patch("/sessions/:id/log", workoutHandler.LogSessionSet)            // Legacy index-based
 	pro.Patch("/sessions/:id/log-ulid", workoutHandler.LogSessionSetByULID) // ULID-first atomic
+
+	pro.Post("/schedules/:schedule_id/exercises", workoutHandler.AddExercise)
+	pro.Delete("/exercises/:id", workoutHandler.RemoveExercise)
+	pro.Put("/exercises/:id", workoutHandler.UpdatePlannedExercise)
 
 	return app
 }

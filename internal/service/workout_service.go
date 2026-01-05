@@ -57,62 +57,72 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 		return nil, fmt.Errorf("invalid template: %w", err)
 	}
 
-	// 4. Hydrate Exercises with ULIDs
-	var planned []*domain.PlannedExercise
-	for _, exID := range template.ExerciseIDs {
-		ex, err := s.exerciseRepo.GetByID(ctx, exID)
-		if err != nil {
-			// If one fails, skip? Or fail? Better to fail or log.
-			// Failsafe: handle gracefully
-			continue
-		}
-
-		// Create 3 default empty sets with ULIDs
-		defaultSets := make([]*domain.SetLog, 3)
-		for i := 0; i < 3; i++ {
-			defaultSets[i] = &domain.SetLog{
-				ULID:     generateULID(),
-				SetIndex: i + 1,
-				Reps:     0,
-				Weight:   0,
-			}
-		}
-
-		planned = append(planned, &domain.PlannedExercise{
-			ULID:       generateULID(),
-			ExerciseID: ex.ID,
-			Name:       ex.Name,
-			Sets:       defaultSets,
-		})
-	}
-
-	// 5. Create Session
+	// 4. Create Session (Empty)
 	session := &domain.WorkoutSession{
-		ScheduleID:       schedule.ID,
-		TenantID:         schedule.TenantID,
-		BranchID:         schedule.BranchID,
-		CoachID:          schedule.CoachID,
-		MemberID:         schedule.MemberID,
-		PlannedExercises: planned,
+		ScheduleID: schedule.ID,
+		TenantID:   schedule.TenantID,
+		BranchID:   schedule.BranchID,
+		CoachID:    schedule.CoachID,
+		MemberID:   schedule.MemberID,
+		// PlannedExercises is strictly read-only after fetch, storage is separate
 	}
 
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
 		return nil, err
 	}
 
-	return session, nil
+	// 5. Add Exercises from Template
+	for i, exID := range template.ExerciseIDs {
+		ex, err := s.exerciseRepo.GetByID(ctx, exID)
+		if err != nil {
+			continue // graceful skip
+		}
+
+		// Create 3 default empty sets with ULIDs
+		defaultSets := make([]*domain.SetLog, 3)
+		for j := 0; j < 3; j++ {
+			defaultSets[j] = &domain.SetLog{
+				ULID:     generateULID(),
+				SetIndex: j + 1,
+				Reps:     0,
+				Weight:   0,
+			}
+		}
+
+		planned := &domain.PlannedExercise{
+			ScheduleID:  schedule.ID,
+			ExerciseID:  ex.ID,
+			Name:        ex.Name,
+			Sets:        defaultSets,
+			Order:       i + 1,
+			TargetSets:  3, // Default from template logic or just static default?
+			TargetReps:  10,
+			RestSeconds: 60,
+		}
+
+		// Save each individually
+		if err := s.sessionRepo.AddPlannedExercise(ctx, planned); err != nil {
+			// logging error?
+			fmt.Printf("failed to add initial exercise: %v\n", err)
+		}
+	}
+
+	// Return full session with exercises inflated
+	return s.GetSession(ctx, session.ID)
 }
 
-// AddExerciseToSession adds an exercise dynamically (at end)
-func (s *WorkoutService) AddExerciseToSession(ctx context.Context, sessionID string, exerciseID string) error {
-	session, err := s.sessionRepo.GetByID(ctx, sessionID)
+// AddExerciseToSession adds an exercise dynamically (at end) - RETURNS the added exercise
+func (s *WorkoutService) AddExerciseToSession(ctx context.Context, scheduleID string, exerciseID string) (*domain.PlannedExercise, error) {
+	// Calculate new order by counting existing planned exercises (resolves "session not found" on new schedules)
+	count, err := s.sessionRepo.CountPlannedExercises(ctx, scheduleID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	newOrder := int(count) + 1
 
 	ex, err := s.exerciseRepo.GetByID(ctx, exerciseID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Default 3 sets with ULIDs
@@ -124,61 +134,46 @@ func (s *WorkoutService) AddExerciseToSession(ctx context.Context, sessionID str
 		}
 	}
 
-	session.PlannedExercises = append(session.PlannedExercises, &domain.PlannedExercise{
-		ULID:       generateULID(),
-		ExerciseID: ex.ID,
-		Name:       ex.Name,
-		Sets:       sets,
-	})
+	planned := &domain.PlannedExercise{
+		ScheduleID:  scheduleID,
+		ExerciseID:  ex.ID,
+		Name:        ex.Name,
+		Sets:        sets,
+		Order:       newOrder,
+		TargetSets:  3,
+		TargetReps:  10,
+		RestSeconds: 60,
+	}
 
-	return s.sessionRepo.Update(ctx, session)
+	if err := s.sessionRepo.AddPlannedExercise(ctx, planned); err != nil {
+		return nil, err
+	}
+
+	return planned, nil
 }
 
-// RemoveExerciseFromSession removes an exercise by index
-func (s *WorkoutService) RemoveExerciseFromSession(ctx context.Context, sessionID string, exerciseIndex int) error {
-	session, err := s.sessionRepo.GetByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if exerciseIndex < 0 || exerciseIndex >= len(session.PlannedExercises) {
-		return errors.New("invalid exercise index")
-	}
-
-	// Remove slice element
-	session.PlannedExercises = append(session.PlannedExercises[:exerciseIndex], session.PlannedExercises[exerciseIndex+1:]...)
-
-	return s.sessionRepo.Update(ctx, session)
+// RemovePlannedExercise removes an exercise by its ID
+func (s *WorkoutService) RemovePlannedExercise(ctx context.Context, plannedExerciseID string) error {
+	// Verify it exists? Repo will error if not found or just delete?
+	// Just call repo
+	return s.sessionRepo.RemovePlannedExercise(ctx, plannedExerciseID)
 }
 
-// LogSet updates a specific set (legacy index-based - kept for backward compatibility)
-func (s *WorkoutService) LogSet(ctx context.Context, sessionID string, exerciseIndex int, setIndex int, weight float64, reps int, remarks string) error {
-	session, err := s.sessionRepo.GetByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if exerciseIndex < 0 || exerciseIndex >= len(session.PlannedExercises) {
-		return errors.New("invalid exercise index")
-	}
-
-	ex := session.PlannedExercises[exerciseIndex]
-	if setIndex < 0 || setIndex >= len(ex.Sets) {
-		return errors.New("invalid set index")
-	}
-
-	set := ex.Sets[setIndex]
-	set.Weight = weight
-	set.Reps = reps
-	set.Remarks = remarks
-	set.Completed = true
-
-	return s.sessionRepo.Update(ctx, session)
+// UpdatePlannedExercise updates details of a planned exercise
+func (s *WorkoutService) UpdatePlannedExercise(ctx context.Context, ex *domain.PlannedExercise) error {
+	return s.sessionRepo.UpdatePlannedExercise(ctx, ex)
 }
+
+// LogSet updates a specific set (legacy index-based)
+// FIXME: This legacy method relies on array index in slice. Since we separated collection, "Plan" is a list.
+// We should probably deprecate or adapt. But for now, we leave it broken or fix it to fetch-find-update?
+// Since User uses LogSetByULID, we prioritize that. Let's fix LogSetByULID below.
 
 // LogSetByULID atomically updates or inserts a set using ULID-based targeting
-func (s *WorkoutService) LogSetByULID(ctx context.Context, sessionID, exerciseULID string, setLog *domain.SetLog) error {
-	return s.sessionRepo.UpsertSetLog(ctx, sessionID, exerciseULID, setLog)
+func (s *WorkoutService) LogSetByULID(ctx context.Context, sessionID, exerciseID string, setLog *domain.SetLog) error {
+	// ExerciseID is now the _id of the PlannedExercise document
+	// We pass sessionID just for context or if we need it, but UpsertSetLog in repo uses exerciseID (as _id)
+	return s.sessionRepo.UpsertSetLog(ctx, sessionID, exerciseID, setLog)
 }
 
 func (s *WorkoutService) GetSession(ctx context.Context, id string) (*domain.WorkoutSession, error) {
