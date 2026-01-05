@@ -102,6 +102,16 @@ func (s *PTService) GetContract(ctx context.Context, id string) (*domain.PTContr
 	return s.contractRepo.GetByID(ctx, id)
 }
 
+// GetActiveContractsWithMembers returns contracts with embedded member info for client listing
+func (s *PTService) GetActiveContractsWithMembers(ctx context.Context, coachID string) ([]*domain.ContractWithMember, error) {
+	return s.contractRepo.GetActiveContractsWithMembers(ctx, coachID)
+}
+
+// GetFirstActiveContractByCoachAndMember finds the first active contract for auto-resolution
+func (s *PTService) GetFirstActiveContractByCoachAndMember(ctx context.Context, coachID, memberID string) (*domain.PTContract, error) {
+	return s.contractRepo.GetFirstActiveContractByCoachAndMember(ctx, coachID, memberID)
+}
+
 // --- Scheduling ---
 
 func (s *PTService) CreateSchedule(ctx context.Context, schedule *domain.Schedule) error {
@@ -214,4 +224,8 @@ func (s *PTService) ListSchedules(ctx context.Context, tenantID string, filter m
 
 func (s *PTService) GetSchedule(ctx context.Context, id string) (*domain.Schedule, error) {
 	return s.schedRepo.GetByID(ctx, id)
+}
+
+func (s *PTService) DeleteSchedule(ctx context.Context, id string) error {
+	return s.schedRepo.Delete(ctx, id)
 }

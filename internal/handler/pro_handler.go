@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/mansoorceksport/metamorph/internal/domain"
 	"github.com/mansoorceksport/metamorph/internal/service"
@@ -27,35 +29,68 @@ func NewProHandler(
 	}
 }
 
-// GetClients handles GET /v1/pro/clients
-// GetClients handles GET /v1/pro/clients
-func (h *ProHandler) GetClients(c *fiber.Ctx) error {
-	coachID := c.Locals("userID").(string) // Ensure ID is correct (internal mongo ID or Firebase UID)
+// ClientResponse represents a client with contract info for the coach dashboard
+type ClientResponse struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Email             string `json:"email"`
+	Avatar            string `json:"avatar,omitempty"`
+	ActiveContractID  string `json:"active_contract_id"`
+	RemainingSessions int    `json:"remaining_sessions"`
+	ChurnScore        int    `json:"churn_score"`
+	AttendanceTrend   string `json:"attendance_trend"`
+	LastSessionDate   string `json:"last_session_date,omitempty"`
+	TotalSessions     int    `json:"total_sessions"`
+}
 
-	// Fetch Active contracts for this coach
-	contracts, err := h.ptService.GetActiveContractsByCoach(c.Context(), coachID)
+// GetClients handles GET /v1/pro/clients
+// Returns clients with contract info for scheduling
+func (h *ProHandler) GetClients(c *fiber.Ctx) error {
+	coachID := c.Locals("userID").(string)
+
+	// Use optimized aggregation to get contracts with member info
+	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.Context(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Extract Unique Member IDs
-	memberMap := make(map[string]bool)
-	var memberIDs []string
-	for _, contract := range contracts {
-		if !memberMap[contract.MemberID] {
-			memberMap[contract.MemberID] = true
-			memberIDs = append(memberIDs, contract.MemberID)
+	// Deduplicate by member (a member may have multiple contracts)
+	memberMap := make(map[string]*ClientResponse)
+	for _, cwm := range contractsWithMembers {
+		if cwm.Member == nil || cwm.Contract == nil {
+			continue
+		}
+
+		memberID := cwm.Contract.MemberID
+		existing, exists := memberMap[memberID]
+
+		if !exists {
+			// First contract for this member
+			memberMap[memberID] = &ClientResponse{
+				ID:                memberID,
+				Name:              cwm.Member.Name,
+				Email:             cwm.Member.Email,
+				ActiveContractID:  cwm.Contract.ID,
+				RemainingSessions: cwm.Contract.RemainingSessions,
+				ChurnScore:        50, // TODO: Compute from attendance patterns
+				AttendanceTrend:   "stable",
+				TotalSessions:     cwm.Contract.TotalSessions,
+			}
+		} else {
+			// Add remaining sessions from additional contracts
+			existing.RemainingSessions += cwm.Contract.RemainingSessions
+			existing.TotalSessions += cwm.Contract.TotalSessions
+			// Keep the contract with most remaining sessions as active
+			if cwm.Contract.RemainingSessions > existing.RemainingSessions {
+				existing.ActiveContractID = cwm.Contract.ID
+			}
 		}
 	}
 
-	// Fetch Member Profiles
-	// This would require a Bulk Get or loop. For now loop.
-	var clients []*domain.User
-	for _, memberID := range memberIDs {
-		user, err := h.userRepo.GetByID(c.Context(), memberID)
-		if err == nil {
-			clients = append(clients, user)
-		}
+	// Convert map to slice
+	clients := make([]*ClientResponse, 0, len(memberMap))
+	for _, client := range memberMap {
+		clients = append(clients, client)
 	}
 
 	return c.JSON(clients)
@@ -111,4 +146,75 @@ func (h *ProHandler) GetDashboardSummary(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(summary)
+}
+
+// ScheduleWithMemberName represents a schedule with denormalized member name
+type ScheduleWithMemberName struct {
+	*domain.Schedule
+	MemberName string `json:"member_name"`
+}
+
+// GetMySchedules handles GET /v1/pro/schedules
+// Returns coach's schedules for a date range, with member names
+func (h *ProHandler) GetMySchedules(c *fiber.Ctx) error {
+	coachID := c.Locals("userID").(string)
+
+	// Parse date range from query params
+	fromStr := c.Query("from")
+	toStr := c.Query("to")
+
+	var from, to time.Time
+	var err error
+
+	if fromStr != "" {
+		from, err = time.Parse("2006-01-02", fromStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid 'from' date format, use YYYY-MM-DD"})
+		}
+	} else {
+		// Default to start of current day
+		now := time.Now()
+		from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	}
+
+	if toStr != "" {
+		to, err = time.Parse("2006-01-02", toStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid 'to' date format, use YYYY-MM-DD"})
+		}
+		// End of that day
+		to = to.Add(24*time.Hour - time.Second)
+	} else {
+		// Default to 7 days from now
+		to = from.Add(7 * 24 * time.Hour)
+	}
+
+	schedules, err := h.ptService.GetSchedules(c.Context(), "coach", coachID, from, to)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Fetch member names for each schedule
+	result := make([]*ScheduleWithMemberName, 0, len(schedules))
+	memberCache := make(map[string]string) // memberID -> name cache
+
+	for _, schedule := range schedules {
+		memberName := ""
+		if name, ok := memberCache[schedule.MemberID]; ok {
+			memberName = name
+		} else {
+			user, err := h.userRepo.GetByID(c.Context(), schedule.MemberID)
+			if err == nil && user != nil {
+				memberName = user.Name
+				memberCache[schedule.MemberID] = memberName
+			}
+		}
+
+		result = append(result, &ScheduleWithMemberName{
+			Schedule:   schedule,
+			MemberName: memberName,
+		})
+	}
+
+	return c.JSON(result)
 }

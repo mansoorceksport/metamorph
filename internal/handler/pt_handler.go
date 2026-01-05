@@ -205,6 +205,7 @@ func (h *PTHandler) GetContract(c *fiber.Ctx) error {
 // --- Pro/Member: Schedules ---
 
 // CreateSchedule POST /v1/pro/schedules
+// Accepts session_goal and can auto-resolve contract_id from member_id
 func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	userID, ok := c.Locals("userID").(string)
 	if !ok || userID == "" {
@@ -223,26 +224,55 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		ContractID string    `json:"contract_id"`
-		MemberID   string    `json:"member_id"`
-		StartTime  time.Time `json:"start_time"`
-		EndTime    time.Time `json:"end_time"`
-		Remarks    string    `json:"remarks"`
+		ContractID  string    `json:"contract_id"`  // Optional if member_id provided
+		MemberID    string    `json:"member_id"`    // Required
+		StartTime   time.Time `json:"start_time"`   // Required
+		EndTime     time.Time `json:"end_time"`     // Optional, defaults to +1 hour
+		SessionGoal string    `json:"session_goal"` // e.g., "Leg Day - Hypertrophy Focus"
+		Remarks     string    `json:"remarks"`      // Optional coach notes
 	}
 
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
+	// Validate required fields
+	if req.MemberID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "member_id is required"})
+	}
+	if req.StartTime.IsZero() {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "start_time is required"})
+	}
+
+	// Auto-resolve contract_id if not provided
+	contractID := req.ContractID
+	if contractID == "" {
+		contract, err := h.ptService.GetFirstActiveContractByCoachAndMember(c.Context(), userID, req.MemberID)
+		if err != nil {
+			if err == domain.ErrContractNotFound {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No active contract found for this member"})
+			}
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to resolve contract: " + err.Error()})
+		}
+		contractID = contract.ID
+	}
+
+	// Default end time to +1 hour if not provided
+	endTime := req.EndTime
+	if endTime.IsZero() {
+		endTime = req.StartTime.Add(time.Hour)
+	}
+
 	schedule := &domain.Schedule{
-		ContractID: req.ContractID,
-		CoachID:    userID, // The creator (Pro) is the coach
-		MemberID:   req.MemberID,
-		TenantID:   tenantID,
-		BranchID:   homeBranchID,
-		StartTime:  req.StartTime,
-		EndTime:    req.EndTime,
-		Remarks:    req.Remarks,
+		ContractID:  contractID,
+		CoachID:     userID, // The creator (Pro) is the coach
+		MemberID:    req.MemberID,
+		TenantID:    tenantID,
+		BranchID:    homeBranchID,
+		StartTime:   req.StartTime,
+		EndTime:     endTime,
+		SessionGoal: req.SessionGoal,
+		Remarks:     req.Remarks,
 	}
 
 	if err := h.ptService.CreateSchedule(c.Context(), schedule); err != nil {
@@ -250,6 +280,9 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err == domain.ErrBranchMismatch {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err == domain.ErrContractNotFound {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -357,4 +390,38 @@ func (h *PTHandler) GetSchedule(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(schedule)
+}
+
+// DeleteSchedule DELETE /v1/pro/schedules/:id
+func (h *PTHandler) DeleteSchedule(c *fiber.Ctx) error {
+	userID, ok := c.Locals("userID").(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	scheduleID := c.Params("id")
+
+	// First verify the coach owns this schedule
+	schedule, err := h.ptService.GetSchedule(c.Context(), scheduleID)
+	if err != nil {
+		if err == domain.ErrScheduleNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Schedule not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if schedule.CoachID != userID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You can only delete your own schedules"})
+	}
+
+	// Only allow deleting scheduled (not started) sessions
+	if schedule.Status != domain.ScheduleStatusScheduled {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Can only delete scheduled sessions, not started or completed ones"})
+	}
+
+	if err := h.ptService.DeleteSchedule(c.Context(), scheduleID); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"message": "Schedule deleted successfully"})
 }

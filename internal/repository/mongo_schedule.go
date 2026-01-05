@@ -155,6 +155,22 @@ func (r *MongoScheduleRepository) UpdateStatus(ctx context.Context, id string, s
 	return err
 }
 
+func (r *MongoScheduleRepository) Delete(ctx context.Context, id string) error {
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return domain.ErrInvalidID
+	}
+
+	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": oid})
+	if err != nil {
+		return fmt.Errorf("failed to delete schedule: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return domain.ErrScheduleNotFound
+	}
+	return nil
+}
+
 func (r *MongoScheduleRepository) CountByContractAndStatus(ctx context.Context, contractID string, statuses []string) (int64, error) {
 	filter := bson.M{
 		"contract_id": contractID,

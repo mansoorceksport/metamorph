@@ -101,7 +101,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Correlation-ID",
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
 
@@ -153,9 +153,11 @@ func NewApp(deps AppDependencies) *fiber.App {
 	pro.Get("/clients", proHandler.GetClients)
 	pro.Get("/clients/:id/history", proHandler.GetClientHistory)
 	pro.Get("/dashboard/summary", proHandler.GetDashboardSummary)
+	pro.Get("/schedules", proHandler.GetMySchedules) // Get coach's schedules for date range
 
 	pro.Post("/schedules", ptHandler.CreateSchedule)
 	pro.Post("/schedules/:id/complete", ptHandler.CompleteSession)
+	pro.Delete("/schedules/:id", ptHandler.DeleteSchedule)
 
 	// ===========================================
 	// PLATFORM API - /v1/platform/* (requires 'super_admin' role)

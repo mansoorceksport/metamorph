@@ -65,18 +65,19 @@ type PTContract struct {
 
 // Schedule represents a single PT session, linked to a Contract
 type Schedule struct {
-	ID         string    `json:"id" bson:"_id,omitempty"`
-	TenantID   string    `json:"tenant_id" bson:"tenant_id"`
-	BranchID   string    `json:"branch_id" bson:"branch_id"`
-	ContractID string    `json:"contract_id" bson:"contract_id"` // Replaces PackageID reference
-	CoachID    string    `json:"coach_id" bson:"coach_id"`
-	MemberID   string    `json:"member_id" bson:"member_id"`
-	StartTime  time.Time `json:"start_time" bson:"start_time"`
-	EndTime    time.Time `json:"end_time" bson:"end_time"`
-	Status     string    `json:"status" bson:"status"`
-	Remarks    string    `json:"remarks,omitempty" bson:"remarks,omitempty"`
-	CreatedAt  time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at" bson:"updated_at"`
+	ID          string    `json:"id" bson:"_id,omitempty"`
+	TenantID    string    `json:"tenant_id" bson:"tenant_id"`
+	BranchID    string    `json:"branch_id" bson:"branch_id"`
+	ContractID  string    `json:"contract_id" bson:"contract_id"` // Replaces PackageID reference
+	CoachID     string    `json:"coach_id" bson:"coach_id"`
+	MemberID    string    `json:"member_id" bson:"member_id"`
+	StartTime   time.Time `json:"start_time" bson:"start_time"`
+	EndTime     time.Time `json:"end_time" bson:"end_time"`
+	Status      string    `json:"status" bson:"status"`
+	SessionGoal string    `json:"session_goal,omitempty" bson:"session_goal,omitempty"` // e.g., "Leg Day - Hypertrophy Focus"
+	Remarks     string    `json:"remarks,omitempty" bson:"remarks,omitempty"`           // Coach notes
+	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" bson:"updated_at"`
 }
 
 // Repositories
@@ -86,6 +87,12 @@ type PTPackageRepository interface {
 	GetByID(ctx context.Context, id string) (*PTPackage, error)
 	GetByTenant(ctx context.Context, tenantID string) ([]*PTPackage, error)
 	Update(ctx context.Context, pkg *PTPackage) error
+}
+
+// ContractWithMember represents a contract with embedded member info for client listing
+type ContractWithMember struct {
+	Contract *PTContract `json:"contract" bson:"contract"`
+	Member   *User       `json:"member" bson:"member"`
 }
 
 type PTContractRepository interface {
@@ -98,6 +105,10 @@ type PTContractRepository interface {
 	UpdateStatus(ctx context.Context, contractID string, status string) error
 	// GetLowSessionsByCoach returns contracts with remaining sessions below threshold
 	GetLowSessionsByCoach(ctx context.Context, coachID string, threshold int) ([]*PTContract, error)
+	// GetActiveContractsWithMembers returns contracts with embedded member info (optimized aggregation)
+	GetActiveContractsWithMembers(ctx context.Context, coachID string) ([]*ContractWithMember, error)
+	// GetFirstActiveContractByCoachAndMember finds the first active contract between a coach and member
+	GetFirstActiveContractByCoachAndMember(ctx context.Context, coachID, memberID string) (*PTContract, error)
 }
 
 type ScheduleRepository interface {
@@ -108,6 +119,7 @@ type ScheduleRepository interface {
 	List(ctx context.Context, tenantID string, filterOpts map[string]interface{}) ([]*Schedule, error)
 	Update(ctx context.Context, schedule *Schedule) error
 	UpdateStatus(ctx context.Context, id string, status string) error
+	Delete(ctx context.Context, id string) error
 	CountByContractAndStatus(ctx context.Context, contractID string, statuses []string) (int64, error)
 	// GetAttendanceByCoach fetches all schedules for a coach within the last N days
 	GetAttendanceByCoach(ctx context.Context, coachID string, days int) ([]*Schedule, error)
