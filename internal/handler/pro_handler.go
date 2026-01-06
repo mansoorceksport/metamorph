@@ -13,6 +13,7 @@ type ProHandler struct {
 	userRepo         domain.UserRepository // To fetch member details
 	analyticsService domain.AnalyticsService
 	dashboardService domain.DashboardService
+	pbRepo           domain.PersonalBestRepository // For fetching PBs
 }
 
 func NewProHandler(
@@ -20,12 +21,14 @@ func NewProHandler(
 	userRepo domain.UserRepository,
 	analyticsService domain.AnalyticsService,
 	dashboardService domain.DashboardService,
+	pbRepo domain.PersonalBestRepository,
 ) *ProHandler {
 	return &ProHandler{
 		ptService:        ptService,
 		userRepo:         userRepo,
 		analyticsService: analyticsService,
 		dashboardService: dashboardService,
+		pbRepo:           pbRepo,
 	}
 }
 
@@ -217,4 +220,42 @@ func (h *ProHandler) GetMySchedules(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(result)
+}
+
+// GetMemberPBs handles GET /v1/pro/members/:member_id/pbs
+// Returns all personal bests for a member
+func (h *ProHandler) GetMemberPBs(c *fiber.Ctx) error {
+	coachID := c.Locals("userID").(string)
+	memberID := c.Params("member_id")
+
+	// Verify access: Coach must have an active contract with this member
+	contracts, err := h.ptService.GetActiveContractsByCoach(c.Context(), coachID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	hasAccess := false
+	for _, contract := range contracts {
+		if contract.MemberID == memberID {
+			hasAccess = true
+			break
+		}
+	}
+
+	if !hasAccess {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Not authorized to view this member's PBs"})
+	}
+
+	// Fetch PBs
+	pbs, err := h.pbRepo.GetByMember(c.Context(), memberID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Return empty array if no PBs
+	if pbs == nil {
+		pbs = []*domain.PersonalBest{}
+	}
+
+	return c.JSON(pbs)
 }

@@ -76,7 +76,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	// Initialize auth service
 	authService := service.NewAuthService(userRepo, tenantRepo, deps.AuthClient, deps.Config.JWT.Secret)
-	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo, setLogRepo)
+	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo, setLogRepo, pbRepo)
 	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo)
 
 	// Initialize dashboard service
@@ -87,7 +87,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, trendService)
 	authHandler := handler.NewAuthHandler(authService)
 	saasHandler := handler.NewSaaSHandler(tenantRepo, userRepo, branchRepo)
-	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService)
+	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
 
@@ -155,7 +155,8 @@ func NewApp(deps AppDependencies) *fiber.App {
 	pro.Get("/clients", proHandler.GetClients)
 	pro.Get("/clients/:id/history", proHandler.GetClientHistory)
 	pro.Get("/dashboard/summary", proHandler.GetDashboardSummary)
-	pro.Get("/schedules", proHandler.GetMySchedules) // Get coach's schedules for date range
+	pro.Get("/schedules", proHandler.GetMySchedules)            // Get coach's schedules for date range
+	pro.Get("/members/:member_id/pbs", proHandler.GetMemberPBs) // Get member's personal bests
 
 	pro.Post("/schedules", ptHandler.CreateSchedule)
 	pro.Post("/schedules/:id/complete", ptHandler.CompleteSession)

@@ -323,23 +323,8 @@ func (s *WorkoutService) UpdateSetLog(ctx context.Context, idOrClientID string, 
 		return err
 	}
 
-	// Check for new PB if weight > 0 and completed
-	if weight > 0 && completed && s.pbRepo != nil {
-		pb := &domain.PersonalBest{
-			MemberID:   setLog.MemberID,
-			ExerciseID: setLog.ExerciseID,
-			Weight:     weight,
-			Reps:       reps,
-			ScheduleID: setLog.ScheduleID,
-		}
-		isNewPB, err := s.pbRepo.Upsert(ctx, pb)
-		if err != nil {
-			// Log but don't fail the set update
-			fmt.Printf("Warning: Failed to check/update PB: %v\n", err)
-		} else if isNewPB {
-			fmt.Printf("🎉 New PB! Member %s, Exercise %s: %.1f kg\n", setLog.MemberID, setLog.ExerciseID, weight)
-		}
-	}
+	// Note: PB updates are now handled at session completion (PTService.CompleteSession)
+	// to ensure data integrity after coach finalization.
 
 	return nil
 }

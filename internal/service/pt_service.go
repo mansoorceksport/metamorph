@@ -15,6 +15,7 @@ type PTService struct {
 	schedRepo    domain.ScheduleRepository
 	sessionRepo  domain.WorkoutSessionRepository // For cascade delete of planned exercises
 	setLogRepo   domain.SetLogRepository         // For cascade delete of set logs
+	pbRepo       domain.PersonalBestRepository   // For PB updates at session completion
 }
 
 func NewPTService(
@@ -23,6 +24,7 @@ func NewPTService(
 	schedRepo domain.ScheduleRepository,
 	sessionRepo domain.WorkoutSessionRepository,
 	setLogRepo domain.SetLogRepository,
+	pbRepo domain.PersonalBestRepository,
 ) *PTService {
 	return &PTService{
 		pkgRepo:      pkgRepo,
@@ -30,6 +32,7 @@ func NewPTService(
 		schedRepo:    schedRepo,
 		sessionRepo:  sessionRepo,
 		setLogRepo:   setLogRepo,
+		pbRepo:       pbRepo,
 	}
 }
 
@@ -223,6 +226,55 @@ func (s *PTService) CompleteSession(ctx context.Context, scheduleID string, coac
 	// 2. Atomically Decrement Contract
 	if err := s.contractRepo.DecrementSession(ctx, schedule.ContractID); err != nil {
 		return fmt.Errorf("session completed but failed to decrement contract: %w", err)
+	}
+
+	// 3. Update Personal Bests (batch processing at session completion)
+	if s.pbRepo != nil && s.setLogRepo != nil {
+		setLogs, err := s.setLogRepo.GetByScheduleID(ctx, scheduleID)
+		if err != nil {
+			// Log but don't fail the completion
+			fmt.Printf("Warning: Failed to fetch set logs for PB update: %v\n", err)
+		} else {
+			// Group by (member_id, exercise_id) and find max weight for completed sets
+			type pbKey struct {
+				memberID   string
+				exerciseID string
+			}
+			maxWeights := make(map[pbKey]struct {
+				weight float64
+				reps   int
+			})
+
+			for _, log := range setLogs {
+				if !log.Completed || log.Weight <= 0 {
+					continue
+				}
+				key := pbKey{memberID: log.MemberID, exerciseID: log.ExerciseID}
+				if existing, ok := maxWeights[key]; !ok || log.Weight > existing.weight {
+					maxWeights[key] = struct {
+						weight float64
+						reps   int
+					}{weight: log.Weight, reps: log.Reps}
+				}
+			}
+
+			// Upsert each PB
+			for key, val := range maxWeights {
+				pb := &domain.PersonalBest{
+					MemberID:   key.memberID,
+					ExerciseID: key.exerciseID,
+					Weight:     val.weight,
+					Reps:       val.reps,
+					ScheduleID: scheduleID,
+				}
+				isNewPB, err := s.pbRepo.Upsert(ctx, pb)
+				if err != nil {
+					fmt.Printf("Warning: Failed to upsert PB for member %s, exercise %s: %v\n", key.memberID, key.exerciseID, err)
+				} else if isNewPB {
+					fmt.Printf("🎉 New PB! Member %s, Exercise %s: %.1f kg\n", key.memberID, key.exerciseID, val.weight)
+				}
+			}
+		}
 	}
 
 	return nil
