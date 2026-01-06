@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -64,6 +65,19 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 			continue
 		}
 
+		// Calculate truly remaining sessions (Credit - Scheduled)
+		activeScheduleCount, err := h.ptService.GetActiveScheduleCount(c.Context(), cwm.Contract.ID)
+		if err != nil {
+			// Log error but proceed with conservative estimate? Or just log.
+			fmt.Printf("Error counting active schedules for contract %s: %v\n", cwm.Contract.ID, err)
+			activeScheduleCount = 0
+		}
+
+		availableSessions := cwm.Contract.RemainingSessions - int(activeScheduleCount)
+		if availableSessions < 0 {
+			availableSessions = 0
+		}
+
 		memberID := cwm.Contract.MemberID
 		existing, exists := memberMap[memberID]
 
@@ -74,17 +88,17 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 				Name:              cwm.Member.Name,
 				Email:             cwm.Member.Email,
 				ActiveContractID:  cwm.Contract.ID,
-				RemainingSessions: cwm.Contract.RemainingSessions,
+				RemainingSessions: availableSessions,
 				ChurnScore:        50, // TODO: Compute from attendance patterns
 				AttendanceTrend:   "stable",
 				TotalSessions:     cwm.Contract.TotalSessions,
 			}
 		} else {
 			// Add remaining sessions from additional contracts
-			existing.RemainingSessions += cwm.Contract.RemainingSessions
+			existing.RemainingSessions += availableSessions
 			existing.TotalSessions += cwm.Contract.TotalSessions
 			// Keep the contract with most remaining sessions as active
-			if cwm.Contract.RemainingSessions > existing.RemainingSessions {
+			if availableSessions > existing.RemainingSessions {
 				existing.ActiveContractID = cwm.Contract.ID
 			}
 		}

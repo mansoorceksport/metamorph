@@ -312,3 +312,7 @@ func (s *PTService) DeleteSchedule(ctx context.Context, id string) error {
 func (s *PTService) UpdateScheduleStatus(ctx context.Context, id string, status string) error {
 	return s.schedRepo.UpdateStatus(ctx, id, status)
 }
+
+func (s *PTService) GetActiveScheduleCount(ctx context.Context, contractID string) (int64, error) {
+	return s.schedRepo.CountByContractAndStatus(ctx, contractID, []string{domain.ScheduleStatusScheduled, domain.ScheduleStatusPendingConfirmation})
+}

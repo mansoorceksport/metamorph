@@ -207,19 +207,32 @@ func (h *PTHandler) GetContract(c *fiber.Ctx) error {
 // CreateSchedule POST /v1/pro/schedules
 // Accepts session_goal and can auto-resolve contract_id from member_id
 func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
+	// DEBUG: Log raw request body
+	rawBody := string(c.Body())
+	println("[DEBUG] CreateSchedule - Raw body:", rawBody)
+	println("[DEBUG] CreateSchedule - Content-Type:", c.Get("Content-Type"))
+
 	userID, ok := c.Locals("userID").(string)
 	if !ok || userID == "" {
+		println("[DEBUG] CreateSchedule - Missing userID")
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing user context"})
 	}
+	println("[DEBUG] CreateSchedule - userID:", userID)
+
 	tenantID, _ := c.Locals("tenant_id").(string)
+	println("[DEBUG] CreateSchedule - tenantID:", tenantID)
+
 	// Fetch user to get current HomeBranchID (dynamic lookup)
 	user, err := h.userRepo.GetByID(c.Context(), userID)
 	if err != nil {
+		println("[DEBUG] CreateSchedule - Failed to fetch user:", err.Error())
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Failed to fetch user profile"})
 	}
 	homeBranchID := user.HomeBranchID
+	println("[DEBUG] CreateSchedule - homeBranchID:", homeBranchID)
 
 	if homeBranchID == "" {
+		println("[DEBUG] CreateSchedule - No HomeBranchID")
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Coach must be assigned to a Home Branch"})
 	}
 
@@ -234,28 +247,40 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(&req); err != nil {
+		println("[DEBUG] CreateSchedule - BodyParser error:", err.Error())
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
+	println("[DEBUG] CreateSchedule - Parsed request:")
+	println("[DEBUG]   client_id:", req.ClientID)
+	println("[DEBUG]   member_id:", req.MemberID)
+	println("[DEBUG]   start_time:", req.StartTime.String())
+	println("[DEBUG]   session_goal:", req.SessionGoal)
+
 	// Validate required fields
 	if req.MemberID == "" {
+		println("[DEBUG] CreateSchedule - MemberID is empty")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "member_id is required"})
 	}
 	if req.StartTime.IsZero() {
+		println("[DEBUG] CreateSchedule - StartTime is zero")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "start_time is required"})
 	}
 
 	// Auto-resolve contract_id if not provided
 	contractID := req.ContractID
 	if contractID == "" {
+		println("[DEBUG] CreateSchedule - Resolving contract for coach:", userID, "member:", req.MemberID)
 		contract, err := h.ptService.GetFirstActiveContractByCoachAndMember(c.Context(), userID, req.MemberID)
 		if err != nil {
+			println("[DEBUG] CreateSchedule - Contract resolution failed:", err.Error())
 			if err == domain.ErrContractNotFound {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No active contract found for this member"})
 			}
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to resolve contract: " + err.Error()})
 		}
 		contractID = contract.ID
+		println("[DEBUG] CreateSchedule - Resolved contractID:", contractID)
 	}
 
 	// Default end time to +1 hour if not provided
@@ -278,6 +303,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	}
 
 	if err := h.ptService.CreateSchedule(c.Context(), schedule); err != nil {
+		println("[DEBUG] CreateSchedule - ptService.CreateSchedule failed:", err.Error())
 		if err == domain.ErrPackageDepleted {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -289,6 +315,8 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	println("[DEBUG] CreateSchedule - Success! ID:", schedule.ID)
 
 	// Return schedule with client_id for dual-identity handshake
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
