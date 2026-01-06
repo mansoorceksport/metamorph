@@ -40,6 +40,8 @@ func NewApp(deps AppDependencies) *fiber.App {
 	exerciseRepo := repository.NewMongoExerciseRepository(deps.MongoDB)
 	templateRepo := repository.NewMongoTemplateRepository(deps.MongoDB)
 	workoutSessionRepo := repository.NewMongoWorkoutSessionRepository(deps.MongoDB)
+	setLogRepo := repository.NewMongoSetLogRepository(deps.MongoDB)
+	pbRepo := repository.NewMongoPersonalBestRepository(deps.MongoDB)
 
 	// S3 Init (Optional/Mockable in future, for now using config if available)
 	// For tests, we might want to mock this too, but for now we'll create it directly
@@ -74,8 +76,8 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	// Initialize auth service
 	authService := service.NewAuthService(userRepo, tenantRepo, deps.AuthClient, deps.Config.JWT.Secret)
-	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo)
-	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo)
+	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo, setLogRepo)
+	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo)
 
 	// Initialize dashboard service
 	dashboardService := service.NewDashboardService(contractRepo, schedRepo, mongoRepo, workoutSessionRepo, userRepo)
@@ -157,6 +159,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	pro.Post("/schedules", ptHandler.CreateSchedule)
 	pro.Post("/schedules/:id/complete", ptHandler.CompleteSession)
+	pro.Put("/schedules/:id/status", ptHandler.UpdateScheduleStatus)
 	pro.Delete("/schedules/:id", ptHandler.DeleteSchedule)
 
 	// ===========================================
@@ -292,6 +295,13 @@ func NewApp(deps AppDependencies) *fiber.App {
 	pro.Post("/schedules/:schedule_id/exercises", workoutHandler.AddExercise)
 	pro.Delete("/exercises/:id", workoutHandler.RemoveExercise)
 	pro.Put("/exercises/:id", workoutHandler.UpdatePlannedExercise)
+
+	// Atomic set operations (new set_logs collection)
+	pro.Put("/sets/:id", workoutHandler.UpdateSetLog)
+	pro.Delete("/sets/:id", workoutHandler.DeleteSetLog)
+	pro.Post("/exercises/:id/sets", workoutHandler.AddSetToExercise)
+	pro.Get("/schedules/:schedule_id/sets", workoutHandler.ListScheduleSets)
+	pro.Get("/schedules/:schedule_id/exercises", workoutHandler.ListScheduleExercises)
 
 	return app
 }

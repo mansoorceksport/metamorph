@@ -50,6 +50,7 @@ type WorkoutSessionRepository interface {
 	Create(ctx context.Context, session *WorkoutSession) error
 	GetByID(ctx context.Context, id string) (*WorkoutSession, error)
 	GetByScheduleID(ctx context.Context, scheduleID string) (*WorkoutSession, error)
+	GetPlannedExercisesByScheduleID(ctx context.Context, scheduleID string) ([]*PlannedExercise, error)
 	Update(ctx context.Context, session *WorkoutSession) error
 	// GetSessionsByCoachAndDateRange retrieves all workout sessions for a coach within a date range
 	GetSessionsByCoachAndDateRange(ctx context.Context, coachID string, from, to time.Time) ([]*WorkoutSession, error)
@@ -59,6 +60,10 @@ type WorkoutSessionRepository interface {
 	RemovePlannedExercise(ctx context.Context, id string) error
 	// UpdatePlannedExercise updates a planned exercise
 	UpdatePlannedExercise(ctx context.Context, exercise *PlannedExercise) error
+	// GetPlannedExerciseByID retrieves a planned exercise by MongoDB ObjectID
+	GetPlannedExerciseByID(ctx context.Context, id string) (*PlannedExercise, error)
+	// GetPlannedExerciseByClientID retrieves a planned exercise by frontend ULID
+	GetPlannedExerciseByClientID(ctx context.Context, clientID string) (*PlannedExercise, error)
 	// DeletePlannedExercisesBySchedule deletes all planned exercises for a schedule (cascade delete)
 	DeletePlannedExercisesBySchedule(ctx context.Context, scheduleID string) error
 	CountPlannedExercises(ctx context.Context, scheduleID string) (int64, error)

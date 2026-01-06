@@ -118,6 +118,21 @@ func (r *MongoWorkoutSessionRepository) Update(ctx context.Context, session *dom
 	return err
 }
 
+// GetPlannedExercisesByScheduleID retrieves planned exercises directly (ignoring session doc existence)
+func (r *MongoWorkoutSessionRepository) GetPlannedExercisesByScheduleID(ctx context.Context, scheduleID string) ([]*domain.PlannedExercise, error) {
+	cursor, err := r.planCollection.Find(ctx, bson.M{"schedule_id": scheduleID}, options.Find().SetSort(bson.M{"order": 1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var exercises []*domain.PlannedExercise
+	if err := cursor.All(ctx, &exercises); err != nil {
+		return nil, err
+	}
+	return exercises, nil
+}
+
 // GetSessionsByCoachAndDateRange retrieves all workout sessions for a coach within a date range
 func (r *MongoWorkoutSessionRepository) GetSessionsByCoachAndDateRange(ctx context.Context, coachID string, from, to time.Time) ([]*domain.WorkoutSession, error) {
 	filter := bson.M{
@@ -170,6 +185,37 @@ func (r *MongoWorkoutSessionRepository) UpdatePlannedExercise(ctx context.Contex
 		return domain.ErrSessionNotFound // Reuse not found error or specific one
 	}
 	return nil
+}
+
+// GetPlannedExerciseByID retrieves a planned exercise by MongoDB ObjectID
+func (r *MongoWorkoutSessionRepository) GetPlannedExerciseByID(ctx context.Context, id string) (*domain.PlannedExercise, error) {
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, domain.ErrInvalidID
+	}
+
+	var exercise domain.PlannedExercise
+	err = r.planCollection.FindOne(ctx, bson.M{"_id": oid}).Decode(&exercise)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, domain.ErrSessionNotFound
+		}
+		return nil, err
+	}
+	return &exercise, nil
+}
+
+// GetPlannedExerciseByClientID retrieves a planned exercise by frontend ULID (client_id)
+func (r *MongoWorkoutSessionRepository) GetPlannedExerciseByClientID(ctx context.Context, clientID string) (*domain.PlannedExercise, error) {
+	var exercise domain.PlannedExercise
+	err := r.planCollection.FindOne(ctx, bson.M{"client_id": clientID}).Decode(&exercise)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, domain.ErrSessionNotFound
+		}
+		return nil, err
+	}
+	return &exercise, nil
 }
 
 // CountPlannedExercises counts the number of planned exercises for a schedule

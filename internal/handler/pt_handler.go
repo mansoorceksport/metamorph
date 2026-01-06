@@ -364,7 +364,20 @@ func (h *PTHandler) CompleteSession(c *fiber.Ctx) error {
 
 	scheduleID := c.Params("id")
 
+	// Attempt to complete. Service handles logic.
+	// PROBLEM: Service calls GetByID which expects MongoID.
+	// We should probably allow Service to try GetByClientID if GetByID fails or if ID format matches ULID.
+	// But let's fix it here by resolving it first if possible, OR update Service to be smart.
+	// Updating Service is cleaner.
+
+	// However, I don't see GetByClientID in the service interface yet.
+	// Let's modify the service to handle "Smart Get" or let the handler search.
+	// Actually, let's keep it simple: simpler to just update the service to handle both.
+
 	if err := h.ptService.CompleteSession(c.Context(), scheduleID, userID); err != nil {
+		if err == domain.ErrScheduleNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Schedule not found"})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -440,4 +453,61 @@ func (h *PTHandler) DeleteSchedule(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "Schedule deleted successfully"})
+}
+
+// UpdateScheduleStatus PUT /v1/pro/schedules/:id/status
+func (h *PTHandler) UpdateScheduleStatus(c *fiber.Ctx) error {
+	userID, ok := c.Locals("userID").(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+
+	scheduleID := c.Params("id")
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	if req.Status == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Status is required"})
+	}
+
+	// Validate status value
+	validStatuses := map[string]bool{
+		domain.ScheduleStatusScheduled:           true,
+		domain.ScheduleStatusPendingConfirmation: true,
+		domain.ScheduleStatusCompleted:           true,
+		domain.ScheduleStatusCancelled:           true,
+		domain.ScheduleStatusNoShow:              true,
+		"in-progress":                            true, // Frontend uses this
+	}
+	if !validStatuses[req.Status] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid status value"})
+	}
+
+	// Verify the coach owns this schedule
+	schedule, err := h.ptService.GetSchedule(c.Context(), scheduleID)
+	if err != nil {
+		if err == domain.ErrScheduleNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Schedule not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if schedule.CoachID != userID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You can only update your own schedules"})
+	}
+
+	// Update status
+	if err := h.ptService.UpdateScheduleStatus(c.Context(), scheduleID, req.Status); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"id":     scheduleID,
+		"status": req.Status,
+	})
 }

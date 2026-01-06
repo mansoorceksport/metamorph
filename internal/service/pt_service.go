@@ -14,6 +14,7 @@ type PTService struct {
 	contractRepo domain.PTContractRepository
 	schedRepo    domain.ScheduleRepository
 	sessionRepo  domain.WorkoutSessionRepository // For cascade delete of planned exercises
+	setLogRepo   domain.SetLogRepository         // For cascade delete of set logs
 }
 
 func NewPTService(
@@ -21,12 +22,14 @@ func NewPTService(
 	contractRepo domain.PTContractRepository,
 	schedRepo domain.ScheduleRepository,
 	sessionRepo domain.WorkoutSessionRepository,
+	setLogRepo domain.SetLogRepository,
 ) *PTService {
 	return &PTService{
 		pkgRepo:      pkgRepo,
 		contractRepo: contractRepo,
 		schedRepo:    schedRepo,
 		sessionRepo:  sessionRepo,
+		setLogRepo:   setLogRepo,
 	}
 }
 
@@ -188,7 +191,20 @@ func (s *PTService) RescheduleSession(ctx context.Context, scheduleID string, ne
 func (s *PTService) CompleteSession(ctx context.Context, scheduleID string, coachID string) error {
 	schedule, err := s.schedRepo.GetByID(ctx, scheduleID)
 	if err != nil {
-		return err
+		// If not found or invalid ID, try looking up by ClientID (ULID)
+		if err == domain.ErrScheduleNotFound || err == domain.ErrInvalidID { // Assuming ErrInvalidID is the one from repo
+			schedByClient, errClient := s.schedRepo.GetByClientID(ctx, scheduleID)
+			if errClient == nil {
+				schedule = schedByClient
+				// Update scheduleID to the canonical MongoID for subsequent calls
+				scheduleID = schedule.ID
+			} else {
+				// Return original error if both fail
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 
 	if schedule.CoachID != coachID {
@@ -230,9 +246,17 @@ func (s *PTService) GetSchedule(ctx context.Context, id string) (*domain.Schedul
 }
 
 func (s *PTService) DeleteSchedule(ctx context.Context, id string) error {
-	// Cascade delete: first remove all planned exercises for this schedule
+	// Cascade delete: first remove all set_logs for this schedule
+	if err := s.setLogRepo.DeleteByScheduleID(ctx, id); err != nil {
+		return fmt.Errorf("failed to delete set logs: %w", err)
+	}
+	// Then remove all planned exercises for this schedule
 	if err := s.sessionRepo.DeletePlannedExercisesBySchedule(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete planned exercises: %w", err)
 	}
 	return s.schedRepo.Delete(ctx, id)
+}
+
+func (s *PTService) UpdateScheduleStatus(ctx context.Context, id string, status string) error {
+	return s.schedRepo.UpdateStatus(ctx, id, status)
 }

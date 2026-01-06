@@ -139,6 +139,34 @@ func (h *WorkoutHandler) InitializeSession(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(session)
 }
 
+// ListScheduleSets GET /v1/pro/schedules/:schedule_id/sets - List all set logs for a schedule
+func (h *WorkoutHandler) ListScheduleSets(c *fiber.Ctx) error {
+	scheduleID := c.Params("schedule_id")
+
+	sets, err := h.workoutService.GetSetsBySchedule(c.Context(), scheduleID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(sets)
+}
+
+// ListScheduleExercises GET /v1/pro/schedules/:schedule_id/exercises - List all planned exercises for a schedule
+func (h *WorkoutHandler) ListScheduleExercises(c *fiber.Ctx) error {
+	scheduleID := c.Params("schedule_id")
+
+	exercises, err := h.workoutService.GetExercisesBySchedule(c.Context(), scheduleID)
+	if err != nil {
+		if err == domain.ErrSessionNotFound {
+			return c.JSON([]interface{}{})
+		}
+		// If schedule itself is not found, resolveScheduleID returns error
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(exercises)
+}
+
 // AddExercise POST /v1/pro/schedules/:schedule_id/exercises
 func (h *WorkoutHandler) AddExercise(c *fiber.Ctx) error {
 	scheduleID := c.Params("schedule_id")
@@ -251,4 +279,93 @@ func (h *WorkoutHandler) LogSessionSetByULID(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "logged", "set_ulid": setLog.ULID})
+}
+
+// UpdateSetLog PUT /v1/pro/sets/:id - Atomic update of a set log document
+func (h *WorkoutHandler) UpdateSetLog(c *fiber.Ctx) error {
+	id := c.Params("id") // Parse request (optional remarks or partial update)
+	var req struct {
+		Weight    *float64 `json:"weight"`
+		Reps      *int     `json:"reps"`
+		Remarks   *string  `json:"remarks"`
+		Completed *bool    `json:"completed"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	// For partial updates, we might need a Get then Update pattern, but service handles it?
+	// Service expects explicit values.
+	// For now assume full update or frontend sends current values.
+	// IF frontend sends partial, we need to handle defaults.
+	// Simplification: Service UpdateSetLog signatures takes args.
+	// We need to fetch current if partial?
+	// The frontend `updateSetLogWithSync` sends ALL fields. So we are good.
+
+	weight := 0.0
+	if req.Weight != nil {
+		weight = *req.Weight
+	}
+	reps := 0
+	if req.Reps != nil {
+		reps = *req.Reps
+	}
+	remarks := ""
+	if req.Remarks != nil {
+		remarks = *req.Remarks
+	}
+	completed := false
+	if req.Completed != nil {
+		completed = *req.Completed
+	}
+
+	err := h.workoutService.UpdateSetLog(c.Context(), id, weight, reps, remarks, completed)
+	if err != nil {
+		if err == domain.ErrSessionNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Set log not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.SendStatus(fiber.StatusOK)
+}
+
+// DeleteSetLog DELETE /v1/pro/sets/:id - Delete a set log
+func (h *WorkoutHandler) DeleteSetLog(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Set log ID is required"})
+	}
+
+	err := h.workoutService.DeleteSetLog(c.Context(), id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.SendStatus(fiber.StatusOK)
+}
+
+// AddSetToExercise POST /v1/pro/exercises/:id/sets - Add a new set to an exercise
+func (h *WorkoutHandler) AddSetToExercise(c *fiber.Ctx) error {
+	exerciseID := c.Params("id") // PlannedExercise ID (MongoDB or client_id)
+
+	var req struct {
+		ClientID string `json:"client_id"` // Frontend ULID for dual-identity
+		SetIndex int    `json:"set_index"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
+	}
+
+	setLog, err := h.workoutService.AddSetToExercise(c.Context(), exerciseID, req.ClientID, req.SetIndex)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"id":        setLog.ID,
+		"client_id": setLog.ClientID,
+		"set_index": setLog.SetIndex,
+	})
 }
