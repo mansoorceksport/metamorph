@@ -18,6 +18,7 @@ type ProHandler struct {
 	pbRepo           domain.PersonalBestRepository // For fetching PBs
 	scanService      domain.ScanService            // For digitizing scans
 	inbodyRepo       domain.InBodyRepository       // For fetching scan records
+	workoutService   *service.WorkoutService       // For volume history
 	maxUploadMB      int64
 }
 
@@ -29,6 +30,7 @@ func NewProHandler(
 	pbRepo domain.PersonalBestRepository,
 	scanService domain.ScanService,
 	inbodyRepo domain.InBodyRepository,
+	workoutService *service.WorkoutService,
 	maxUploadMB int64,
 ) *ProHandler {
 	return &ProHandler{
@@ -39,6 +41,7 @@ func NewProHandler(
 		pbRepo:           pbRepo,
 		scanService:      scanService,
 		inbodyRepo:       inbodyRepo,
+		workoutService:   workoutService,
 		maxUploadMB:      maxUploadMB,
 	}
 }
@@ -776,4 +779,46 @@ func (h *ProHandler) DeleteScan(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"success": true, "message": "Scan deleted"})
+}
+
+// GetMemberVolumeHistory handles GET /v1/pro/members/:id/volume-history
+// Returns DailyVolume records for the XP Mountain chart
+func (h *ProHandler) GetMemberVolumeHistory(c *fiber.Ctx) error {
+	memberID := c.Params("id")
+	if memberID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Member ID required"})
+	}
+
+	// Get limit from query param (default 30 days)
+	limit := c.QueryInt("limit", 30)
+
+	// Get volume history
+	volumes, err := h.workoutService.GetMemberVolumeHistory(c.Context(), memberID, limit)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Build response
+	type VolumePoint struct {
+		Date          string  `json:"date"`
+		TotalVolume   float64 `json:"total_volume"`
+		TotalSets     int     `json:"total_sets"`
+		TotalReps     int     `json:"total_reps"`
+		TotalWeight   float64 `json:"total_weight"`
+		ExerciseCount int     `json:"exercise_count"`
+	}
+
+	response := make([]VolumePoint, len(volumes))
+	for i, v := range volumes {
+		response[i] = VolumePoint{
+			Date:          v.Date.Format("2006-01-02"),
+			TotalVolume:   v.TotalVolume,
+			TotalSets:     v.TotalSets,
+			TotalReps:     v.TotalReps,
+			TotalWeight:   v.TotalWeight,
+			ExerciseCount: v.ExerciseCount,
+		}
+	}
+
+	return c.JSON(fiber.Map{"volumes": response})
 }

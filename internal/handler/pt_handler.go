@@ -9,16 +9,18 @@ import (
 )
 
 type PTHandler struct {
-	ptService  *service.PTService
-	branchRepo domain.BranchRepository
-	userRepo   domain.UserRepository
+	ptService      *service.PTService
+	branchRepo     domain.BranchRepository
+	userRepo       domain.UserRepository
+	workoutService *service.WorkoutService // For volume aggregation on completion
 }
 
-func NewPTHandler(ptService *service.PTService, branchRepo domain.BranchRepository, userRepo domain.UserRepository) *PTHandler {
+func NewPTHandler(ptService *service.PTService, branchRepo domain.BranchRepository, userRepo domain.UserRepository, workoutService *service.WorkoutService) *PTHandler {
 	return &PTHandler{
-		ptService:  ptService,
-		branchRepo: branchRepo,
-		userRepo:   userRepo,
+		ptService:      ptService,
+		branchRepo:     branchRepo,
+		userRepo:       userRepo,
+		workoutService: workoutService,
 	}
 }
 
@@ -392,21 +394,32 @@ func (h *PTHandler) CompleteSession(c *fiber.Ctx) error {
 
 	scheduleID := c.Params("id")
 
-	// Attempt to complete. Service handles logic.
-	// PROBLEM: Service calls GetByID which expects MongoID.
-	// We should probably allow Service to try GetByClientID if GetByID fails or if ID format matches ULID.
-	// But let's fix it here by resolving it first if possible, OR update Service to be smart.
-	// Updating Service is cleaner.
+	// Get schedule first (for volume aggregation later)
+	schedule, err := h.ptService.GetSchedule(c.Context(), scheduleID)
+	if err != nil {
+		if err == domain.ErrScheduleNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Schedule not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
 
-	// However, I don't see GetByClientID in the service interface yet.
-	// Let's modify the service to handle "Smart Get" or let the handler search.
-	// Actually, let's keep it simple: simpler to just update the service to handle both.
-
+	// Complete the session
 	if err := h.ptService.CompleteSession(c.Context(), scheduleID, userID); err != nil {
 		if err == domain.ErrScheduleNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Schedule not found"})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Trigger volume aggregation
+	if h.workoutService != nil {
+		volume, err := h.workoutService.AggregateSessionVolume(c.Context(), schedule.ID, schedule.MemberID, schedule.TenantID)
+		if err != nil {
+			// Log but don't fail
+			c.Context().Logger().Printf("Failed to aggregate volume for schedule %s: %v", schedule.ID, err)
+		} else if volume != nil {
+			c.Context().Logger().Printf("Aggregated volume for schedule %s: %.0f kg", schedule.ID, volume.TotalVolume)
+		}
 	}
 
 	return c.JSON(fiber.Map{"message": "Session completed"})
@@ -532,6 +545,15 @@ func (h *PTHandler) UpdateScheduleStatus(c *fiber.Ctx) error {
 	// Update status
 	if err := h.ptService.UpdateScheduleStatus(c.Context(), scheduleID, req.Status); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Trigger volume aggregation when session is completed
+	if req.Status == domain.ScheduleStatusCompleted && h.workoutService != nil {
+		_, err := h.workoutService.AggregateSessionVolume(c.Context(), scheduleID, schedule.MemberID, schedule.TenantID)
+		if err != nil {
+			// Log but don't fail the status update
+			c.Context().Logger().Printf("Failed to aggregate volume for schedule %s: %v", scheduleID, err)
+		}
 	}
 
 	return c.JSON(fiber.Map{

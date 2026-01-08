@@ -299,7 +299,18 @@ func (s *PTService) ListSchedules(ctx context.Context, tenantID string, filter m
 }
 
 func (s *PTService) GetSchedule(ctx context.Context, id string) (*domain.Schedule, error) {
-	return s.schedRepo.GetByID(ctx, id)
+	schedule, err := s.schedRepo.GetByID(ctx, id)
+	if err != nil {
+		// If not found or invalid ID, try looking up by ClientID (ULID)
+		if err == domain.ErrScheduleNotFound || err == domain.ErrInvalidID {
+			schedByClient, errClient := s.schedRepo.GetByClientID(ctx, id)
+			if errClient == nil {
+				return schedByClient, nil
+			}
+		}
+		return nil, err
+	}
+	return schedule, nil
 }
 
 func (s *PTService) DeleteSchedule(ctx context.Context, id string) error {

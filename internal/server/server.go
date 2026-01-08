@@ -42,6 +42,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	workoutSessionRepo := repository.NewMongoWorkoutSessionRepository(deps.MongoDB)
 	setLogRepo := repository.NewMongoSetLogRepository(deps.MongoDB)
 	pbRepo := repository.NewMongoPersonalBestRepository(deps.MongoDB)
+	dailyVolumeRepo := repository.NewMongoDailyVolumeRepository(deps.MongoDB)
 
 	// S3 Init (Optional/Mockable in future, for now using config if available)
 	// For tests, we might want to mock this too, but for now we'll create it directly
@@ -77,7 +78,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	// Initialize auth service
 	authService := service.NewAuthService(userRepo, tenantRepo, deps.AuthClient, deps.Config.JWT.Secret)
 	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo, setLogRepo, pbRepo)
-	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo)
+	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo, dailyVolumeRepo)
 
 	// Initialize dashboard service
 	dashboardService := service.NewDashboardService(contractRepo, schedRepo, mongoRepo, workoutSessionRepo, userRepo)
@@ -87,8 +88,8 @@ func NewApp(deps AppDependencies) *fiber.App {
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, trendService)
 	authHandler := handler.NewAuthHandler(authService)
 	saasHandler := handler.NewSaaSHandler(tenantRepo, userRepo, branchRepo)
-	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, deps.Config.Server.MaxUploadSizeMB)
-	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo)
+	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, deps.Config.Server.MaxUploadSizeMB)
+	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
 
 	// Create Fiber app
@@ -155,17 +156,18 @@ func NewApp(deps AppDependencies) *fiber.App {
 	pro.Get("/clients", proHandler.GetClients)
 	pro.Get("/clients/:id/history", proHandler.GetClientHistory)
 	pro.Get("/dashboard/summary", proHandler.GetDashboardSummary)
-	pro.Get("/schedules", proHandler.GetMySchedules)              // Get coach's schedules for date range
-	pro.Get("/members/:member_id/pbs", proHandler.GetMemberPBs)   // Get member's personal bests
-	pro.Get("/members/:id", proHandler.GetMember)                 // Get member details
-	pro.Get("/members/:id/scans", proHandler.GetMemberScans)      // Get member's scan records
-	pro.Get("/packages", proHandler.ListPackages)                 // List available packages
-	pro.Get("/scans/:id", proHandler.GetScan)                     // Get single scan by ID
-	pro.Post("/members", proHandler.CreateMember)                 // Coach creates new member
-	pro.Post("/members/:id/scans", proHandler.DigitizeMemberScan) // Coach uploads scan for member
-	pro.Post("/contracts", proHandler.CreateContract)             // Coach creates contract for member
-	pro.Put("/scans/:id", proHandler.UpdateScan)                  // Update scan data
-	pro.Delete("/scans/:id", proHandler.DeleteScan)               // Delete scan
+	pro.Get("/schedules", proHandler.GetMySchedules)                          // Get coach's schedules for date range
+	pro.Get("/members/:member_id/pbs", proHandler.GetMemberPBs)               // Get member's personal bests
+	pro.Get("/members/:id", proHandler.GetMember)                             // Get member details
+	pro.Get("/members/:id/scans", proHandler.GetMemberScans)                  // Get member's scan records
+	pro.Get("/members/:id/volume-history", proHandler.GetMemberVolumeHistory) // Get member's workout volume history
+	pro.Get("/packages", proHandler.ListPackages)                             // List available packages
+	pro.Get("/scans/:id", proHandler.GetScan)                                 // Get single scan by ID
+	pro.Post("/members", proHandler.CreateMember)                             // Coach creates new member
+	pro.Post("/members/:id/scans", proHandler.DigitizeMemberScan)             // Coach uploads scan for member
+	pro.Post("/contracts", proHandler.CreateContract)                         // Coach creates contract for member
+	pro.Put("/scans/:id", proHandler.UpdateScan)                              // Update scan data
+	pro.Delete("/scans/:id", proHandler.DeleteScan)                           // Delete scan
 
 	pro.Post("/schedules", ptHandler.CreateSchedule)
 	pro.Post("/schedules/:id/complete", ptHandler.CompleteSession)

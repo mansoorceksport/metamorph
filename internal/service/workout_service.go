@@ -18,6 +18,7 @@ type WorkoutService struct {
 	scheduleRepo domain.ScheduleRepository     // To verify schedule exists
 	setLogRepo   domain.SetLogRepository       // For atomic set operations
 	pbRepo       domain.PersonalBestRepository // For PB tracking
+	volumeRepo   domain.DailyVolumeRepository  // For volume aggregation
 }
 
 func NewWorkoutService(
@@ -27,6 +28,7 @@ func NewWorkoutService(
 	scheduleRepo domain.ScheduleRepository,
 	setLogRepo domain.SetLogRepository,
 	pbRepo domain.PersonalBestRepository,
+	volumeRepo domain.DailyVolumeRepository,
 ) *WorkoutService {
 	return &WorkoutService{
 		exerciseRepo: exerciseRepo,
@@ -35,6 +37,7 @@ func NewWorkoutService(
 		scheduleRepo: scheduleRepo,
 		setLogRepo:   setLogRepo,
 		pbRepo:       pbRepo,
+		volumeRepo:   volumeRepo,
 	}
 }
 
@@ -110,6 +113,26 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 		if err := s.sessionRepo.AddPlannedExercise(ctx, planned); err != nil {
 			// logging error?
 			fmt.Printf("failed to add initial exercise: %v\n", err)
+			continue
+		}
+
+		// ALSO create SetLogDocuments in set_logs collection
+		// This enables syncScheduleSets to fetch proper IDs for the frontend
+		for _, set := range defaultSets {
+			setLogDoc := &domain.SetLogDocument{
+				ClientID:          set.ULID, // Use the ULID as client_id for dual-identity
+				PlannedExerciseID: planned.ID,
+				ScheduleID:        schedule.ID,
+				MemberID:          schedule.MemberID,
+				ExerciseID:        ex.ID,
+				SetIndex:          set.SetIndex,
+				Weight:            set.Weight,
+				Reps:              set.Reps,
+				Completed:         false,
+			}
+			if err := s.setLogRepo.Create(ctx, setLogDoc); err != nil {
+				fmt.Printf("failed to create set_log document: %v\n", err)
+			}
 		}
 	}
 
@@ -450,4 +473,76 @@ func (s *WorkoutService) resolvePlannedExercise(ctx context.Context, idOrClientI
 
 	// Try to get by client_id (ULID)
 	return s.sessionRepo.GetPlannedExerciseByClientID(ctx, idOrClientID)
+}
+
+// AggregateSessionVolume calculates and saves the total volume for a completed schedule
+// This should be called when a Schedule status changes to 'completed'
+// Volume = sum(Weight * Reps) for all completed sets
+func (s *WorkoutService) AggregateSessionVolume(ctx context.Context, scheduleID string, memberID string, tenantID string) (*domain.DailyVolume, error) {
+	// Check if we already have a volume record for this schedule
+	existing, err := s.volumeRepo.GetByScheduleID(ctx, scheduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing volume: %w", err)
+	}
+
+	// Get all set logs for this schedule
+	setLogs, err := s.setLogRepo.GetByScheduleID(ctx, scheduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch set logs: %w", err)
+	}
+
+	// Calculate aggregates
+	var totalVolume float64
+	var totalWeight float64
+	var totalReps int
+	var totalSets int
+	exerciseIDs := make(map[string]bool)
+
+	for _, log := range setLogs {
+		if log.Completed && log.Weight > 0 && log.Reps > 0 {
+			volume := log.Weight * float64(log.Reps)
+			totalVolume += volume
+			totalWeight += log.Weight
+			totalReps += log.Reps
+			totalSets++
+			exerciseIDs[log.ExerciseID] = true
+		}
+	}
+
+	// Get the schedule to determine the date
+	schedule, err := s.scheduleRepo.GetByID(ctx, scheduleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch schedule: %w", err)
+	}
+
+	// Create or update volume record
+	dailyVolume := &domain.DailyVolume{
+		TenantID:      tenantID,
+		MemberID:      memberID,
+		ScheduleID:    scheduleID,
+		Date:          schedule.StartTime,
+		TotalVolume:   totalVolume,
+		TotalSets:     totalSets,
+		TotalReps:     totalReps,
+		TotalWeight:   totalWeight,
+		ExerciseCount: len(exerciseIDs),
+	}
+
+	if existing != nil {
+		// Delete old record and create new one (simpler than upsert)
+		if err := s.volumeRepo.Delete(ctx, existing.ID); err != nil {
+			return nil, fmt.Errorf("failed to delete old volume: %w", err)
+		}
+	}
+
+	if err := s.volumeRepo.Create(ctx, dailyVolume); err != nil {
+		return nil, fmt.Errorf("failed to save daily volume: %w", err)
+	}
+
+	return dailyVolume, nil
+}
+
+// GetMemberVolumeHistory retrieves volume history for charting
+func (s *WorkoutService) GetMemberVolumeHistory(ctx context.Context, memberID string, limit int) ([]*domain.DailyVolume, error) {
+	return s.volumeRepo.GetByMemberID(ctx, memberID, limit)
 }
