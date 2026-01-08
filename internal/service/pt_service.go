@@ -121,6 +121,11 @@ func (s *PTService) GetFirstActiveContractByCoachAndMember(ctx context.Context, 
 	return s.contractRepo.GetFirstActiveContractByCoachAndMember(ctx, coachID, memberID)
 }
 
+// GetContractsByMemberAndCoach returns all contracts between a member and coach
+func (s *PTService) GetContractsByMemberAndCoach(ctx context.Context, memberID, coachID string) ([]*domain.PTContract, error) {
+	return s.contractRepo.GetByMemberAndCoach(ctx, memberID, coachID)
+}
+
 // --- Scheduling ---
 
 func (s *PTService) CreateSchedule(ctx context.Context, schedule *domain.Schedule) error {

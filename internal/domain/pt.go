@@ -110,6 +110,8 @@ type PTContractRepository interface {
 	GetActiveContractsWithMembers(ctx context.Context, coachID string) ([]*ContractWithMember, error)
 	// GetFirstActiveContractByCoachAndMember finds the first active contract between a coach and member
 	GetFirstActiveContractByCoachAndMember(ctx context.Context, coachID, memberID string) (*PTContract, error)
+	// GetByMemberAndCoach returns all contracts between a member and coach
+	GetByMemberAndCoach(ctx context.Context, memberID, coachID string) ([]*PTContract, error)
 }
 
 type ScheduleRepository interface {

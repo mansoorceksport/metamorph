@@ -288,3 +288,27 @@ func (r *MongoPTContractRepository) GetFirstActiveContractByCoachAndMember(ctx c
 
 	return &contract, nil
 }
+
+// GetByMemberAndCoach returns all contracts between a member and coach
+func (r *MongoPTContractRepository) GetByMemberAndCoach(ctx context.Context, memberID, coachID string) ([]*domain.PTContract, error) {
+	filter := bson.M{
+		"coach_id":  coachID,
+		"member_id": memberID,
+	}
+
+	// Sort by created_at descending (newest first)
+	opts := options.Find().SetSort(bson.M{"created_at": -1})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find contracts: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var contracts []*domain.PTContract
+	if err := cursor.All(ctx, &contracts); err != nil {
+		return nil, fmt.Errorf("failed to decode contracts: %w", err)
+	}
+
+	return contracts, nil
+}
