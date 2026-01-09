@@ -17,6 +17,7 @@ type DashboardService struct {
 	inbodyRepo   domain.InBodyRepository
 	sessionRepo  domain.WorkoutSessionRepository
 	userRepo     domain.UserRepository
+	pbRepo       domain.PersonalBestRepository
 }
 
 // NewDashboardService creates a new DashboardService instance
@@ -26,6 +27,7 @@ func NewDashboardService(
 	inbodyRepo domain.InBodyRepository,
 	sessionRepo domain.WorkoutSessionRepository,
 	userRepo domain.UserRepository,
+	pbRepo domain.PersonalBestRepository,
 ) *DashboardService {
 	return &DashboardService{
 		contractRepo: contractRepo,
@@ -33,6 +35,7 @@ func NewDashboardService(
 		inbodyRepo:   inbodyRepo,
 		sessionRepo:  sessionRepo,
 		userRepo:     userRepo,
+		pbRepo:       pbRepo,
 	}
 }
 
@@ -64,11 +67,12 @@ func (s *DashboardService) GetCoachSummary(ctx context.Context, coachID string) 
 	}
 
 	summary := &domain.DashboardSummary{
-		RisingStars:   []domain.MemberAnalytics{},
-		ChurnRisk:     []domain.MemberAnalytics{},
-		StrengthWins:  []domain.MemberAnalytics{},
-		PackageHealth: []domain.MemberAnalytics{},
-		Consistent:    []domain.MemberAnalytics{},
+		RisingStars:        []domain.MemberAnalytics{},
+		ChurnRisk:          []domain.MemberAnalytics{},
+		InterventionNeeded: []domain.MemberAnalytics{},
+		StrengthWins:       []domain.MemberAnalytics{},
+		PackageHealth:      []domain.MemberAnalytics{},
+		Consistent:         []domain.MemberAnalytics{},
 	}
 
 	// Use errgroup for concurrent fetching
@@ -121,6 +125,16 @@ func (s *DashboardService) GetCoachSummary(ctx context.Context, coachID string) 
 			return err
 		}
 		summary.Consistent = consistent
+		return nil
+	})
+
+	// Intervention Needed (Stalled Progress / Wellness Flags)
+	g.Go(func() error {
+		intervention, err := s.calculateInterventionNeeded(gCtx, coachID, memberIDs, users)
+		if err != nil {
+			return err
+		}
+		summary.InterventionNeeded = intervention
 		return nil
 	})
 
@@ -459,6 +473,114 @@ func (s *DashboardService) calculateConsistent(ctx context.Context, coachID stri
 	}
 
 	// Sort by number of sessions completed (more sessions = more consistent)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Value > result[j].Value
+	})
+
+	// Limit to 5
+	if len(result) > 5 {
+		result = result[:5]
+	}
+
+	return result, nil
+}
+
+// calculateInterventionNeeded finds members needing coach intervention
+// Flags: stalled progress (high attendance but flat metrics), wellness flags, or >2 no-shows
+func (s *DashboardService) calculateInterventionNeeded(ctx context.Context, coachID string, memberIDs []string, users map[string]*domain.User) ([]domain.MemberAnalytics, error) {
+	if len(memberIDs) == 0 {
+		return []domain.MemberAnalytics{}, nil
+	}
+
+	// Get schedules for last 30 days
+	schedules, err := s.schedRepo.GetAttendanceByCoach(ctx, coachID, 30)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get scans for delta analysis
+	scansMap, err := s.inbodyRepo.GetRecentScansByMembers(ctx, memberIDs, 2)
+	if err != nil {
+		return nil, err
+	}
+
+	// Track per-member data
+	type memberData struct {
+		completedCount int
+		noShowCount    int
+		stalledScore   float64 // Higher = worse (stalled)
+		reason         string
+	}
+	data := make(map[string]*memberData)
+
+	// Count attendance
+	for _, sched := range schedules {
+		if data[sched.MemberID] == nil {
+			data[sched.MemberID] = &memberData{}
+		}
+		if sched.Status == domain.ScheduleStatusCompleted {
+			data[sched.MemberID].completedCount++
+		} else if sched.Status == domain.ScheduleStatusNoShow {
+			data[sched.MemberID].noShowCount++
+		}
+	}
+
+	// Analyze progress stalls
+	for memberID, scans := range scansMap {
+		if len(scans) < 2 {
+			continue
+		}
+		if data[memberID] == nil {
+			data[memberID] = &memberData{}
+		}
+
+		latest := scans[0]
+		previous := scans[1]
+
+		muscleChange := latest.SMM - previous.SMM
+		fatChange := previous.PBF - latest.PBF // Positive = good
+
+		// High attendance but flat metrics
+		if data[memberID].completedCount >= 8 {
+			if muscleChange < 0.2 && fatChange < 0.2 {
+				data[memberID].stalledScore = 1.0
+				data[memberID].reason = "Stalled Progress"
+			}
+		}
+	}
+
+	var result []domain.MemberAnalytics
+
+	for memberID, d := range data {
+		var reason string
+		var score float64
+
+		// Priority: No-shows > Stalled > Normal
+		if d.noShowCount >= 2 {
+			reason = fmt.Sprintf("%d Skipped Sessions", d.noShowCount)
+			score = float64(d.noShowCount)
+		} else if d.stalledScore > 0 {
+			reason = d.reason
+			score = d.stalledScore
+		} else {
+			continue
+		}
+
+		name := memberID
+		if user, ok := users[memberID]; ok {
+			name = user.Name
+		}
+
+		result = append(result, domain.MemberAnalytics{
+			MemberID: memberID,
+			Name:     name,
+			Value:    score,
+			Label:    reason,
+			Trend:    "declining",
+		})
+	}
+
+	// Sort by score descending
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Value > result[j].Value
 	})

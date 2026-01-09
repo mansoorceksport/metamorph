@@ -84,13 +84,14 @@ type MemberAnalytics struct {
 	Trend    string  `json:"trend" bson:"trend"` // "rising" | "declining" | "stable"
 }
 
-// DashboardSummary contains five analytics lists for the Coach Command Center
+// DashboardSummary contains six analytics lists for the Coach Command Center
 type DashboardSummary struct {
-	RisingStars   []MemberAnalytics `json:"rising_stars"`
-	ChurnRisk     []MemberAnalytics `json:"churn_risk"`
-	StrengthWins  []MemberAnalytics `json:"strength_wins"`
-	PackageHealth []MemberAnalytics `json:"package_health"`
-	Consistent    []MemberAnalytics `json:"consistent"`
+	RisingStars        []MemberAnalytics `json:"rising_stars"`
+	ChurnRisk          []MemberAnalytics `json:"churn_risk"`
+	InterventionNeeded []MemberAnalytics `json:"intervention_needed"`
+	StrengthWins       []MemberAnalytics `json:"strength_wins"`
+	PackageHealth      []MemberAnalytics `json:"package_health"`
+	Consistent         []MemberAnalytics `json:"consistent"`
 }
 
 // DashboardService defines the interface for dashboard analytics operations

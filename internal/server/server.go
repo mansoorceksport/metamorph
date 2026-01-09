@@ -81,7 +81,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo, dailyVolumeRepo)
 
 	// Initialize dashboard service
-	dashboardService := service.NewDashboardService(contractRepo, schedRepo, mongoRepo, workoutSessionRepo, userRepo)
+	dashboardService := service.NewDashboardService(contractRepo, schedRepo, mongoRepo, workoutSessionRepo, userRepo, pbRepo)
 
 	// Initialize handlers
 	scanHandler := handler.NewScanHandler(scanService, deps.Config.Server.MaxUploadSizeMB)

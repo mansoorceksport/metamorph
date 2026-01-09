@@ -103,3 +103,34 @@ func (r *MongoPersonalBestRepository) GetByMember(ctx context.Context, memberID 
 	}
 	return pbs, nil
 }
+
+// GetRecentPBsByMembers retrieves PBs achieved by members since a given date
+// Optimized with index {member_id: 1, achieved_at: -1}
+func (r *MongoPersonalBestRepository) GetRecentPBsByMembers(ctx context.Context, memberIDs []string, since time.Time) ([]*domain.PersonalBest, error) {
+	if len(memberIDs) == 0 {
+		return []*domain.PersonalBest{}, nil
+	}
+
+	filter := bson.M{
+		"member_id": bson.M{"$in": memberIDs},
+		"achieved_at": bson.M{
+			"$gte": since,
+		},
+	}
+
+	opts := options.Find().
+		SetSort(bson.M{"achieved_at": -1}).
+		SetLimit(50) // Reasonable limit for dashboard
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var pbs []*domain.PersonalBest
+	if err := cursor.All(ctx, &pbs); err != nil {
+		return nil, err
+	}
+	return pbs, nil
+}
