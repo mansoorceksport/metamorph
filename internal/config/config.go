@@ -26,9 +26,10 @@ type ServerConfig struct {
 }
 
 type S3Config struct {
-	Endpoint string
-	Region   string
-	Bucket   string
+	Endpoint  string
+	PublicURL string // Public URL for serving files (e.g., https://storage.cek-sport.com)
+	Region    string
+	Bucket    string
 }
 
 // MongoDBConfig holds MongoDB connection configuration
@@ -90,9 +91,10 @@ func Load() (*Config, error) {
 			Model:  getEnv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001"),
 		},
 		S3: S3Config{
-			Endpoint: getEnv("S3_ENDPOINT", "http://localhost:8333"),
-			Region:   getEnv("S3_REGION", "us-east-1"),
-			Bucket:   getEnv("S3_BUCKET", "inbody-scans"),
+			Endpoint:  getEnv("S3_ENDPOINT", "http://localhost:8333"),
+			PublicURL: getEnv("S3_PUBLIC_URL", getEnv("S3_ENDPOINT", "http://localhost:8333")), // Falls back to Endpoint if not set
+			Region:    getEnv("S3_REGION", "us-east-1"),
+			Bucket:    getEnv("S3_BUCKET", "inbody-scans"),
 		},
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", "metamorph-dev-secret-change-in-production"),

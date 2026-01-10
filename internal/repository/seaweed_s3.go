@@ -42,7 +42,7 @@ func NewSeaweedS3Repository(ctx context.Context, cfg appConfig.S3Config) (*Seawe
 	repo := &SeaweedS3Repository{
 		client:    client,
 		bucket:    cfg.Bucket,
-		publicURL: cfg.Endpoint, // Assuming public access is via the same endpoint for now
+		publicURL: cfg.PublicURL, // Use public URL for serving files externally
 	}
 
 	// Ensure bucket exists

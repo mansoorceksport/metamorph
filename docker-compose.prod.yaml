@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./metamorph
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./metamorph/.env
+    depends_on:
+      - redis
+      - seaweedfs
+    networks:
+      - metamorph_net
+
+  frontend:
+    build:
+      context: ./metamorph-coach
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./metamorph-coach/.env
+    networks:
+      - metamorph_net
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - metamorph_net
+    # No ports mapped to host to enforce isolation
+
+  seaweedfs:
+    image: chrislusf/seaweedfs
+    restart: always
+    ports:
+      - "8333:8333" # S3 API
+      - "8334:8080" # Volume Server
+      - "8899:8888" # Filer UI
+    command: "server -s3 -dir=/data"
+    volumes:
+      - seaweedfs_data:/data
+    networks:
+      - metamorph_net
+
+volumes:
+  redis_data:
+  seaweedfs_data:
+
+networks:
+  metamorph_net:
+    driver: bridge
