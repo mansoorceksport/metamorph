@@ -279,15 +279,12 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	// Exercises
 	v1.Get("/exercises", workoutHandler.ListExercises)
-	// Admin CRUD
+	// Exercise CRUD (Coach and Admin can create/update/delete)
 	adminEx := v1.Group("/exercises")
 	adminEx.Use(middleware.VerifyMetamorphToken(deps.Config.JWT.Secret))
-	adminEx.Use(middleware.TenantScope()) // Ensure tenant context? Exercises are GLOBAL. But Auth middleware usually requires it.
-	// Actually, Exercises are Global. Middleware TenantScope might fail if user has no tenant?
-	// But SuperAdmin might not be in a tenant.
-	// Let's assume SuperAdmin or TenantAdmin can manage.
-	// For "Global", strictly SuperAdmin.
-	adminEx.Use(middleware.AuthorizeRole(domain.RoleSuperAdmin))
+	adminEx.Use(middleware.TenantScope())
+	// Allow Coach to manage exercises (will restrict to SuperAdmin later via Metamorph Dashboard)
+	adminEx.Use(middleware.AuthorizeRole(domain.RoleSuperAdmin, domain.RoleCoach, domain.RoleTenantAdmin))
 	adminEx.Post("/", workoutHandler.CreateExercise)
 	adminEx.Put("/:id", workoutHandler.UpdateExercise)
 	adminEx.Delete("/:id", workoutHandler.DeleteExercise)
