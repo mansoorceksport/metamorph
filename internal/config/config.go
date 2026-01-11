@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -59,7 +60,9 @@ type OpenRouterConfig struct {
 
 // JWTConfig holds JWT token configuration
 type JWTConfig struct {
-	Secret string
+	Secret             string
+	AccessTokenExpiry  time.Duration // Short-lived access token (15 min default)
+	RefreshTokenExpiry time.Duration // Long-lived refresh token (7 days default)
 }
 
 // Load reads configuration from environment variables
@@ -97,7 +100,9 @@ func Load() (*Config, error) {
 			Bucket:    getEnv("S3_BUCKET", "inbody-scans"),
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", "metamorph-dev-secret-change-in-production"),
+			Secret:             getEnv("JWT_SECRET", "metamorph-dev-secret-change-in-production"),
+			AccessTokenExpiry:  getDurationEnv("JWT_ACCESS_TOKEN_EXPIRY", 15*time.Minute),
+			RefreshTokenExpiry: getDurationEnv("JWT_REFRESH_TOKEN_EXPIRY", 7*24*time.Hour),
 		},
 	}
 
@@ -145,4 +150,25 @@ func getEnvAsInt64(key string, defaultValue int64) int64 {
 		return defaultValue
 	}
 	return value
+}
+
+// getDurationEnv retrieves an environment variable as time.Duration or returns a default value
+// Accepts formats like "15m", "1h", "7d" (days are converted to hours)
+func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	// Handle custom "d" suffix for days
+	if len(valueStr) > 1 && valueStr[len(valueStr)-1] == 'd' {
+		days, err := strconv.Atoi(valueStr[:len(valueStr)-1])
+		if err == nil {
+			return time.Duration(days) * 24 * time.Hour
+		}
+	}
+	duration, err := time.ParseDuration(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+	return duration
 }

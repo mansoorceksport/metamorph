@@ -43,6 +43,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	setLogRepo := repository.NewMongoSetLogRepository(deps.MongoDB)
 	pbRepo := repository.NewMongoPersonalBestRepository(deps.MongoDB)
 	dailyVolumeRepo := repository.NewMongoDailyVolumeRepository(deps.MongoDB)
+	refreshTokenRepo := repository.NewMongoRefreshTokenRepository(deps.MongoDB)
 
 	// S3 Init (Optional/Mockable in future, for now using config if available)
 	// For tests, we might want to mock this too, but for now we'll create it directly
@@ -77,6 +78,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	// Initialize auth service
 	authService := service.NewAuthService(userRepo, tenantRepo, deps.AuthClient, deps.Config.JWT.Secret)
+	tokenService := service.NewTokenService(deps.Config.JWT, refreshTokenRepo, userRepo)
 	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo, setLogRepo, pbRepo)
 	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo, dailyVolumeRepo)
 
@@ -86,7 +88,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	// Initialize handlers
 	scanHandler := handler.NewScanHandler(scanService, deps.Config.Server.MaxUploadSizeMB)
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, trendService)
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService, tokenService)
 	saasHandler := handler.NewSaaSHandler(tenantRepo, userRepo, branchRepo)
 	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, deps.Config.Server.MaxUploadSizeMB)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
@@ -103,9 +105,10 @@ func NewApp(deps AppDependencies) *fiber.App {
 	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Correlation-ID",
-		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
+		AllowOrigins:     "http://localhost:3000, http://192.168.1.3:3000, https://pt.cek-sport.com",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Correlation-ID",
+		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+		AllowCredentials: true, // Required for httpOnly cookie refresh tokens
 	}))
 
 	// Health check endpoint
@@ -122,6 +125,8 @@ func NewApp(deps AppDependencies) *fiber.App {
 	// Auth endpoints (public)
 	auth := v1.Group("/auth")
 	auth.Post("/login", authHandler.LoginOrRegister)
+	auth.Post("/refresh", authHandler.RefreshToken)
+	auth.Post("/logout", authHandler.Logout)
 
 	// ===========================================
 	// MEMBER API - /v1/me/* (requires 'member' role)
