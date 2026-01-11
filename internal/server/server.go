@@ -14,6 +14,7 @@ import (
 	"github.com/mansoorceksport/metamorph/internal/middleware"
 	"github.com/mansoorceksport/metamorph/internal/repository"
 	"github.com/mansoorceksport/metamorph/internal/service"
+	"github.com/mansoorceksport/metamorph/internal/telemetry"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -104,6 +105,12 @@ func NewApp(deps AppDependencies) *fiber.App {
 	// Global middleware
 	app.Use(recover.New())
 	app.Use(logger.New())
+
+	// OpenTelemetry tracing middleware (before other middleware)
+	if deps.Config.OTEL.Enabled {
+		app.Use(telemetry.FiberMiddleware())
+	}
+
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     "http://localhost:3000, http://192.168.1.3:3000, https://pt.cek-sport.com",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Correlation-ID",

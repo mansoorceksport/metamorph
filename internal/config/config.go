@@ -18,6 +18,7 @@ type Config struct {
 	OpenRouter OpenRouterConfig
 	S3         S3Config
 	JWT        JWTConfig
+	OTEL       OTELConfig
 }
 
 // ServerConfig holds HTTP server configuration
@@ -65,6 +66,17 @@ type JWTConfig struct {
 	RefreshTokenExpiry time.Duration // Long-lived refresh token (7 days default)
 }
 
+// OTELConfig holds OpenTelemetry configuration for Grafana Cloud
+type OTELConfig struct {
+	Enabled        bool
+	Endpoint       string // OTLP endpoint (e.g., otlp-gateway-prod-ap-southeast-2.grafana.net)
+	InstanceID     string // Grafana Cloud Instance ID (from stack name, e.g., 1491795)
+	Token          string // Grafana Cloud API token (glc_...)
+	ServiceName    string
+	ServiceVersion string
+	Environment    string
+}
+
 // Load reads configuration from environment variables
 // It attempts to load from .env file first, then falls back to system env vars
 func Load() (*Config, error) {
@@ -103,6 +115,15 @@ func Load() (*Config, error) {
 			Secret:             getEnv("JWT_SECRET", "metamorph-dev-secret-change-in-production"),
 			AccessTokenExpiry:  getDurationEnv("JWT_ACCESS_TOKEN_EXPIRY", 15*time.Minute),
 			RefreshTokenExpiry: getDurationEnv("JWT_REFRESH_TOKEN_EXPIRY", 7*24*time.Hour),
+		},
+		OTEL: OTELConfig{
+			Enabled:        getEnvAsBool("OTEL_ENABLED", false),
+			Endpoint:       getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+			InstanceID:     getEnv("OTEL_INSTANCE_ID", ""),
+			Token:          getEnv("OTEL_EXPORTER_OTLP_TOKEN", ""),
+			ServiceName:    getEnv("OTEL_SERVICE_NAME", "metamorph-api"),
+			ServiceVersion: getEnv("OTEL_SERVICE_VERSION", "1.0.0"),
+			Environment:    getEnv("OTEL_ENVIRONMENT", "development"),
 		},
 	}
 
@@ -146,6 +167,19 @@ func getEnvAsInt64(key string, defaultValue int64) int64 {
 		return defaultValue
 	}
 	value, err := strconv.ParseInt(valueStr, 10, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return value
+}
+
+// getEnvAsBool retrieves an environment variable as bool or returns a default value
+func getEnvAsBool(key string, defaultValue bool) bool {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	value, err := strconv.ParseBool(valueStr)
 	if err != nil {
 		return defaultValue
 	}
