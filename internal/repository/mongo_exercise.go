@@ -98,11 +98,12 @@ func (r *MongoExerciseRepository) Update(ctx context.Context, ex *domain.Exercis
 
 	update := bson.M{
 		"$set": bson.M{
-			"name":         ex.Name,
-			"muscle_group": ex.MuscleGroup,
-			"equipment":    ex.Equipment,
-			"video_url":    ex.VideoURL,
-			"updated_at":   ex.UpdatedAt,
+			"name":          ex.Name,
+			"muscle_group":  ex.MuscleGroup,
+			"equipment":     ex.Equipment,
+			"video_url":     ex.VideoURL,
+			"reference_url": ex.ReferenceURL,
+			"updated_at":    ex.UpdatedAt,
 		},
 	}
 
