@@ -110,6 +110,8 @@ func (s *TokenService) RevokeAllUserTokens(ctx context.Context, userID string) e
 func (s *TokenService) generateAccessToken(user *domain.User) (string, error) {
 	claims := domain.MetamorphClaims{
 		UserID:       user.ID,
+		Name:         user.Name,  // For Sentry user tracking
+		Email:        user.Email, // For Sentry user tracking
 		Roles:        user.Roles,
 		TenantID:     user.TenantID,
 		HomeBranchID: user.HomeBranchID,

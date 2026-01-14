@@ -7,3 +7,4 @@ get_firebase_token.py
 bin/
 users.json
 scripts
+server_logs
