@@ -166,6 +166,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	pro.Use(middleware.AuthorizeRole(domain.RoleCoach, domain.RoleTenantAdmin))
 
 	pro.Get("/clients", proHandler.GetClients)
+	pro.Get("/clients/simple", proHandler.GetClientsSimple) // Lightweight for /members list
 	pro.Get("/clients/:id/history", proHandler.GetClientHistory)
 	pro.Get("/dashboard/summary", proHandler.GetDashboardSummary)
 	pro.Get("/schedules", proHandler.GetMySchedules)                          // Get coach's schedules for date range

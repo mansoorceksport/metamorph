@@ -60,6 +60,15 @@ type ClientResponse struct {
 	TotalSessions     int    `json:"total_sessions"`
 }
 
+// SimpleClientResponse is a lightweight response for the /members list page
+// Only contains fields actually displayed on the UI
+type SimpleClientResponse struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	RemainingSessions int    `json:"remaining_sessions"`
+	TotalSessions     int    `json:"total_sessions"`
+}
+
 // GetClients handles GET /v1/pro/clients
 // Returns clients with contract info for scheduling
 func (h *ProHandler) GetClients(c *fiber.Ctx) error {
@@ -129,6 +138,51 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 
 	// Convert map to slice
 	clients := make([]*ClientResponse, 0, len(memberMap))
+	for _, client := range memberMap {
+		clients = append(clients, client)
+	}
+
+	return c.JSON(clients)
+}
+
+// GetClientsSimple handles GET /v1/pro/clients/simple
+// Lightweight endpoint for the /members list page - returns only essential data
+// No computed fields like churn_score, attendance_trend, or schedule count calculation
+func (h *ProHandler) GetClientsSimple(c *fiber.Ctx) error {
+	coachID := c.Locals("userID").(string)
+
+	// Use the same aggregation but skip expensive schedule count computation
+	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.Context(), coachID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Deduplicate by member, return simple response
+	memberMap := make(map[string]*SimpleClientResponse)
+	for _, cwm := range contractsWithMembers {
+		if cwm.Member == nil || cwm.Contract == nil {
+			continue
+		}
+
+		memberID := cwm.Contract.MemberID
+		existing, exists := memberMap[memberID]
+
+		if !exists {
+			memberMap[memberID] = &SimpleClientResponse{
+				ID:                memberID,
+				Name:              cwm.Member.Name,
+				RemainingSessions: cwm.Contract.RemainingSessions,
+				TotalSessions:     cwm.Contract.TotalSessions,
+			}
+		} else {
+			// Aggregate across multiple contracts
+			existing.RemainingSessions += cwm.Contract.RemainingSessions
+			existing.TotalSessions += cwm.Contract.TotalSessions
+		}
+	}
+
+	// Convert map to slice
+	clients := make([]*SimpleClientResponse, 0, len(memberMap))
 	for _, client := range memberMap {
 		clients = append(clients, client)
 	}
