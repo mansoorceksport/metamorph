@@ -126,6 +126,8 @@ type ScheduleRepository interface {
 	UpdateStatus(ctx context.Context, id string, status string) error
 	Delete(ctx context.Context, id string) error
 	CountByContractAndStatus(ctx context.Context, contractID string, statuses []string) (int64, error)
+	// CountByContractsAndStatus returns schedule counts for multiple contracts in a single query
+	CountByContractsAndStatus(ctx context.Context, contractIDs []string, statuses []string) (map[string]int, error)
 	// GetAttendanceByCoach fetches all schedules for a coach within the last N days
 	GetAttendanceByCoach(ctx context.Context, coachID string, days int) ([]*Schedule, error)
 }

@@ -332,3 +332,8 @@ func (s *PTService) UpdateScheduleStatus(ctx context.Context, id string, status 
 func (s *PTService) GetActiveScheduleCount(ctx context.Context, contractID string) (int64, error) {
 	return s.schedRepo.CountByContractAndStatus(ctx, contractID, []string{domain.ScheduleStatusScheduled, domain.ScheduleStatusPendingConfirmation})
 }
+
+// GetActiveScheduleCountsBatch returns schedule counts for multiple contracts in a single query
+func (s *PTService) GetActiveScheduleCountsBatch(ctx context.Context, contractIDs []string) (map[string]int, error) {
+	return s.schedRepo.CountByContractsAndStatus(ctx, contractIDs, []string{domain.ScheduleStatusScheduled, domain.ScheduleStatusPendingConfirmation})
+}

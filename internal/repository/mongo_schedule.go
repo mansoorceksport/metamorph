@@ -192,6 +192,47 @@ func (r *MongoScheduleRepository) CountByContractAndStatus(ctx context.Context, 
 	return r.collection.CountDocuments(ctx, filter)
 }
 
+// CountByContractsAndStatus returns schedule counts for multiple contracts in a single query
+// Returns a map of contractID -> count
+func (r *MongoScheduleRepository) CountByContractsAndStatus(ctx context.Context, contractIDs []string, statuses []string) (map[string]int, error) {
+	if len(contractIDs) == 0 {
+		return make(map[string]int), nil
+	}
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"contract_id": bson.M{"$in": contractIDs},
+			"status":      bson.M{"$in": statuses},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   "$contract_id",
+			"count": bson.M{"$sum": 1},
+		}}},
+	}
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate schedule counts: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	type countResult struct {
+		ContractID string `bson:"_id"`
+		Count      int    `bson:"count"`
+	}
+
+	var results []countResult
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("failed to decode schedule counts: %w", err)
+	}
+
+	counts := make(map[string]int)
+	for _, r := range results {
+		counts[r.ContractID] = r.Count
+	}
+	return counts, nil
+}
+
 // GetAttendanceByCoach fetches all schedules for a coach within the last N days
 func (r *MongoScheduleRepository) GetAttendanceByCoach(ctx context.Context, coachID string, days int) ([]*domain.Schedule, error) {
 	since := time.Now().AddDate(0, 0, -days)

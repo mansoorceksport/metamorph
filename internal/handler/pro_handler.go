@@ -65,10 +65,26 @@ type ClientResponse struct {
 func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 	coachID := c.Locals("userID").(string)
 
-	// Use optimized aggregation to get contracts with member info AND schedule counts
+	// Query 1: Get contracts with member info (aggregation)
 	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.Context(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Collect all contract IDs for batch query
+	contractIDs := make([]string, 0, len(contractsWithMembers))
+	for _, cwm := range contractsWithMembers {
+		if cwm.Contract != nil {
+			contractIDs = append(contractIDs, cwm.Contract.ID)
+		}
+	}
+
+	// Query 2: Batch fetch schedule counts for all contracts (single aggregation)
+	scheduleCounts, err := h.ptService.GetActiveScheduleCountsBatch(c.Context(), contractIDs)
+	if err != nil {
+		// Log but proceed with zero counts
+		fmt.Printf("Warning: Failed to get schedule counts: %v\n", err)
+		scheduleCounts = make(map[string]int)
 	}
 
 	// Deduplicate by member (a member may have multiple contracts)
@@ -78,8 +94,9 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 			continue
 		}
 
-		// Use pre-computed schedule count from aggregation (eliminates N+1 queries)
-		availableSessions := cwm.Contract.RemainingSessions - cwm.ActiveScheduleCount
+		// Use pre-fetched schedule count from batch query (2 queries total instead of N+1)
+		activeScheduleCount := scheduleCounts[cwm.Contract.ID]
+		availableSessions := cwm.Contract.RemainingSessions - activeScheduleCount
 		if availableSessions < 0 {
 			availableSessions = 0
 		}

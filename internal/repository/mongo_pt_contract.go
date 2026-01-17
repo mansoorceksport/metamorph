@@ -220,32 +220,10 @@ func (r *MongoPTContractRepository) GetActiveContractsWithMembers(ctx context.Co
 			},
 			"as": "member_docs_str",
 		}}},
-		// Lookup active schedule counts (Scheduled or Pending_Confirmation)
-		{{Key: "$lookup", Value: bson.M{
-			"from": "schedules",
-			"let":  bson.M{"contract_id": bson.M{"$toString": "$_id"}},
-			"pipeline": bson.A{
-				bson.M{"$match": bson.M{
-					"$expr": bson.M{"$eq": bson.A{"$contract_id", "$$contract_id"}},
-					"status": bson.M{"$in": []string{
-						domain.ScheduleStatusScheduled,
-						domain.ScheduleStatusPendingConfirmation,
-					}},
-				}},
-				bson.M{"$count": "total"},
-			},
-			"as": "schedule_counts",
-		}}},
 		// Combine both member lookups
 		{{Key: "$addFields", Value: bson.M{
 			"member_combined": bson.M{
 				"$concatArrays": bson.A{"$member_docs", "$member_docs_str"},
-			},
-			"active_schedule_count": bson.M{
-				"$ifNull": bson.A{
-					bson.M{"$arrayElemAt": bson.A{"$schedule_counts.total", 0}},
-					0,
-				},
 			},
 		}}},
 		// Unwind to get single member
@@ -269,8 +247,7 @@ func (r *MongoPTContractRepository) GetActiveContractsWithMembers(ctx context.Co
 				"created_at":         "$created_at",
 				"updated_at":         "$updated_at",
 			},
-			"member":                "$member_combined",
-			"active_schedule_count": "$active_schedule_count",
+			"member": "$member_combined",
 		}}},
 	}
 
