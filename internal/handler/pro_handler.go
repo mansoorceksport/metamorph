@@ -65,7 +65,7 @@ type ClientResponse struct {
 func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 	coachID := c.Locals("userID").(string)
 
-	// Use optimized aggregation to get contracts with member info
+	// Use optimized aggregation to get contracts with member info AND schedule counts
 	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.Context(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -78,15 +78,8 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 			continue
 		}
 
-		// Calculate truly remaining sessions (Credit - Scheduled)
-		activeScheduleCount, err := h.ptService.GetActiveScheduleCount(c.Context(), cwm.Contract.ID)
-		if err != nil {
-			// Log error but proceed with conservative estimate? Or just log.
-			fmt.Printf("Error counting active schedules for contract %s: %v\n", cwm.Contract.ID, err)
-			activeScheduleCount = 0
-		}
-
-		availableSessions := cwm.Contract.RemainingSessions - int(activeScheduleCount)
+		// Use pre-computed schedule count from aggregation (eliminates N+1 queries)
+		availableSessions := cwm.Contract.RemainingSessions - cwm.ActiveScheduleCount
 		if availableSessions < 0 {
 			availableSessions = 0
 		}

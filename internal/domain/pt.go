@@ -92,8 +92,9 @@ type PTPackageRepository interface {
 
 // ContractWithMember represents a contract with embedded member info for client listing
 type ContractWithMember struct {
-	Contract *PTContract `json:"contract" bson:"contract"`
-	Member   *User       `json:"member" bson:"member"`
+	Contract            *PTContract `json:"contract" bson:"contract"`
+	Member              *User       `json:"member" bson:"member"`
+	ActiveScheduleCount int         `json:"active_schedule_count" bson:"active_schedule_count"` // Pre-computed from aggregation
 }
 
 type PTContractRepository interface {

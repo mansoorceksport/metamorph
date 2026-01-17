@@ -112,7 +112,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	}
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:3000, http://192.168.1.3:3000, https://pt.cek-sport.com",
+		AllowOrigins:     "http://localhost:3000, http://192.168.1.10:3000, https://pt.cek-sport.com",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Correlation-ID",
 		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		AllowCredentials: true, // Required for httpOnly cookie refresh tokens
