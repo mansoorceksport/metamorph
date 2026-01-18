@@ -65,20 +65,21 @@ type PTContract struct {
 
 // Schedule represents a single PT session, linked to a Contract
 type Schedule struct {
-	ID          string    `json:"id" bson:"_id,omitempty"`
-	ClientID    string    `json:"client_id,omitempty" bson:"client_id,omitempty"` // Frontend ULID for dual-identity handshake
-	TenantID    string    `json:"tenant_id" bson:"tenant_id"`
-	BranchID    string    `json:"branch_id" bson:"branch_id"`
-	ContractID  string    `json:"contract_id" bson:"contract_id"` // Replaces PackageID reference
-	CoachID     string    `json:"coach_id" bson:"coach_id"`
-	MemberID    string    `json:"member_id" bson:"member_id"`
-	StartTime   time.Time `json:"start_time" bson:"start_time"`
-	EndTime     time.Time `json:"end_time" bson:"end_time"`
-	Status      string    `json:"status" bson:"status"`
-	SessionGoal string    `json:"session_goal,omitempty" bson:"session_goal,omitempty"` // e.g., "Leg Day - Hypertrophy Focus"
-	Remarks     string    `json:"remarks,omitempty" bson:"remarks,omitempty"`           // Coach notes
-	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" bson:"updated_at"`
+	ID          string     `json:"id" bson:"_id,omitempty"`
+	ClientID    string     `json:"client_id,omitempty" bson:"client_id,omitempty"` // Frontend ULID for dual-identity handshake
+	TenantID    string     `json:"tenant_id" bson:"tenant_id"`
+	BranchID    string     `json:"branch_id" bson:"branch_id"`
+	ContractID  string     `json:"contract_id" bson:"contract_id"` // Replaces PackageID reference
+	CoachID     string     `json:"coach_id" bson:"coach_id"`
+	MemberID    string     `json:"member_id" bson:"member_id"`
+	StartTime   time.Time  `json:"start_time" bson:"start_time"`
+	EndTime     time.Time  `json:"end_time" bson:"end_time"`
+	Status      string     `json:"status" bson:"status"`
+	SessionGoal string     `json:"session_goal,omitempty" bson:"session_goal,omitempty"` // e.g., "Leg Day - Hypertrophy Focus"
+	Remarks     string     `json:"remarks,omitempty" bson:"remarks,omitempty"`           // Coach notes
+	DeletedAt   *time.Time `json:"deleted_at,omitempty" bson:"deleted_at,omitempty"`     // Soft delete timestamp
+	CreatedAt   time.Time  `json:"created_at" bson:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" bson:"updated_at"`
 }
 
 // Repositories
@@ -120,14 +121,18 @@ type ScheduleRepository interface {
 	GetByID(ctx context.Context, id string) (*Schedule, error)
 	GetByClientID(ctx context.Context, clientID string) (*Schedule, error) // Lookup by frontend ULID
 	GetByCoach(ctx context.Context, coachID string, from, to time.Time) ([]*Schedule, error)
+	GetByCoachAllStatuses(ctx context.Context, coachID string, from, to time.Time) ([]*Schedule, error) // For hydration - includes cancelled
 	GetByMember(ctx context.Context, memberID string, from, to time.Time) ([]*Schedule, error)
 	List(ctx context.Context, tenantID string, filterOpts map[string]interface{}) ([]*Schedule, error)
 	Update(ctx context.Context, schedule *Schedule) error
 	UpdateStatus(ctx context.Context, id string, status string) error
 	Delete(ctx context.Context, id string) error
+	SoftDelete(ctx context.Context, id string) error // Sets deleted_at instead of removing
 	CountByContractAndStatus(ctx context.Context, contractID string, statuses []string) (int64, error)
 	// CountByContractsAndStatus returns schedule counts for multiple contracts in a single query
 	CountByContractsAndStatus(ctx context.Context, contractIDs []string, statuses []string) (map[string]int, error)
 	// GetAttendanceByCoach fetches all schedules for a coach within the last N days
 	GetAttendanceByCoach(ctx context.Context, coachID string, days int) ([]*Schedule, error)
+	// GetMemberScheduleStats returns schedule status counts for a member
+	GetMemberScheduleStats(ctx context.Context, memberID string) (completed int, cancelled int, noShow int, err error)
 }

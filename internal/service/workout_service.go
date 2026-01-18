@@ -352,7 +352,7 @@ func (s *WorkoutService) UpdateSetLog(ctx context.Context, idOrClientID string, 
 	return nil
 }
 
-// DeleteSetLog deletes a set log by ID (Mongo ID or Client ID)
+// DeleteSetLog soft-deletes a set log by ID (Mongo ID or Client ID)
 func (s *WorkoutService) DeleteSetLog(ctx context.Context, idOrClientID string) error {
 	// Check if it's a valid MongoDB ObjectID
 	isMongoID := len(idOrClientID) == 24
@@ -388,7 +388,8 @@ func (s *WorkoutService) DeleteSetLog(ctx context.Context, idOrClientID string) 
 		return nil
 	}
 
-	return s.setLogRepo.Delete(ctx, setLog.ID)
+	// Soft delete: preserve data but mark as deleted
+	return s.setLogRepo.SoftDelete(ctx, setLog.ID)
 }
 
 // AddSetToExercise dynamically adds a new set to an exercise

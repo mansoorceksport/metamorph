@@ -19,6 +19,7 @@ type ProHandler struct {
 	scanService      domain.ScanService            // For digitizing scans
 	inbodyRepo       domain.InBodyRepository       // For fetching scan records
 	workoutService   *service.WorkoutService       // For volume history
+	schedRepo        domain.ScheduleRepository     // For hydration
 	maxUploadMB      int64
 }
 
@@ -31,6 +32,7 @@ func NewProHandler(
 	scanService domain.ScanService,
 	inbodyRepo domain.InBodyRepository,
 	workoutService *service.WorkoutService,
+	schedRepo domain.ScheduleRepository,
 	maxUploadMB int64,
 ) *ProHandler {
 	return &ProHandler{
@@ -42,6 +44,7 @@ func NewProHandler(
 		scanService:      scanService,
 		inbodyRepo:       inbodyRepo,
 		workoutService:   workoutService,
+		schedRepo:        schedRepo,
 		maxUploadMB:      maxUploadMB,
 	}
 }
@@ -313,6 +316,73 @@ func (h *ProHandler) GetMySchedules(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
+// HydrateSchedules handles GET /v1/pro/schedules/hydrate
+// Returns ALL schedules including cancelled (for login hydration)
+func (h *ProHandler) HydrateSchedules(c *fiber.Ctx) error {
+	coachID := c.Locals("userID").(string)
+
+	// Parse date range from query params
+	fromStr := c.Query("from")
+	toStr := c.Query("to")
+
+	var from, to time.Time
+	var err error
+
+	if fromStr != "" {
+		from, err = time.Parse("2006-01-02", fromStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid 'from' date format, use YYYY-MM-DD"})
+		}
+	} else {
+		// Default to 10 days ago
+		now := time.Now()
+		from = time.Date(now.Year(), now.Month(), now.Day()-10, 0, 0, 0, 0, now.Location())
+	}
+
+	if toStr != "" {
+		to, err = time.Parse("2006-01-02", toStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid 'to' date format, use YYYY-MM-DD"})
+		}
+		// End of that day
+		to = to.Add(24*time.Hour - time.Second)
+	} else {
+		// Default to 7 days from now
+		now := time.Now()
+		to = time.Date(now.Year(), now.Month(), now.Day()+7, 23, 59, 59, 0, now.Location())
+	}
+
+	// Use schedRepo directly to get ALL statuses (including cancelled)
+	schedules, err := h.schedRepo.GetByCoachAllStatuses(c.Context(), coachID, from, to)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Fetch member names for each schedule
+	result := make([]*ScheduleWithMemberName, 0, len(schedules))
+	memberCache := make(map[string]string) // memberID -> name cache
+
+	for _, schedule := range schedules {
+		memberName := ""
+		if name, ok := memberCache[schedule.MemberID]; ok {
+			memberName = name
+		} else {
+			user, err := h.userRepo.GetByID(c.Context(), schedule.MemberID)
+			if err == nil && user != nil {
+				memberName = user.Name
+				memberCache[schedule.MemberID] = memberName
+			}
+		}
+
+		result = append(result, &ScheduleWithMemberName{
+			Schedule:   schedule,
+			MemberName: memberName,
+		})
+	}
+
+	return c.JSON(result)
+}
+
 // GetMemberPBs handles GET /v1/pro/members/:member_id/pbs
 // Returns all personal bests for a member
 func (h *ProHandler) GetMemberPBs(c *fiber.Ctx) error {
@@ -518,7 +588,7 @@ func (h *ProHandler) DigitizeMemberScan(c *fiber.Ctx) error {
 }
 
 // GetMember handles GET /v1/pro/members/:id
-// Returns member details with contract info
+// Returns member details with contract info and attendance stats
 func (h *ProHandler) GetMember(c *fiber.Ctx) error {
 	memberID := c.Params("id")
 	if memberID == "" {
@@ -559,12 +629,24 @@ func (h *ProHandler) GetMember(c *fiber.Ctx) error {
 		totalRemaining += contract.RemainingSessions
 	}
 
+	// Get schedule stats for analytics
+	completed, cancelled, noShow, statsErr := h.ptService.GetMemberScheduleStats(c.Context(), memberID)
+	if statsErr != nil {
+		// Log but don't fail the request
+		fmt.Printf("Warning: Failed to get member schedule stats: %v\n", statsErr)
+	}
+
 	return c.JSON(fiber.Map{
 		"id":                 member.ID,
 		"name":               member.Name,
 		"email":              member.Email,
 		"contracts":          contracts,
 		"remaining_sessions": totalRemaining,
+		"schedule_stats": fiber.Map{
+			"completed": completed,
+			"cancelled": cancelled,
+			"no_show":   noShow,
+		},
 	})
 }
 

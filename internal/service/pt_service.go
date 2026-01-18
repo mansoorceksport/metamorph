@@ -314,15 +314,10 @@ func (s *PTService) GetSchedule(ctx context.Context, id string) (*domain.Schedul
 }
 
 func (s *PTService) DeleteSchedule(ctx context.Context, id string) error {
-	// Cascade delete: first remove all set_logs for this schedule
-	if err := s.setLogRepo.DeleteByScheduleID(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete set logs: %w", err)
-	}
-	// Then remove all planned exercises for this schedule
-	if err := s.sessionRepo.DeletePlannedExercisesBySchedule(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete planned exercises: %w", err)
-	}
-	return s.schedRepo.Delete(ctx, id)
+	// Soft delete: preserve data but mark as deleted
+	// Note: We don't cascade delete set_logs or planned_exercises
+	// They remain in DB for audit/restore purposes, filtered out by deleted_at on schedule
+	return s.schedRepo.SoftDelete(ctx, id)
 }
 
 func (s *PTService) UpdateScheduleStatus(ctx context.Context, id string, status string) error {
@@ -336,4 +331,9 @@ func (s *PTService) GetActiveScheduleCount(ctx context.Context, contractID strin
 // GetActiveScheduleCountsBatch returns schedule counts for multiple contracts in a single query
 func (s *PTService) GetActiveScheduleCountsBatch(ctx context.Context, contractIDs []string) (map[string]int, error) {
 	return s.schedRepo.CountByContractsAndStatus(ctx, contractIDs, []string{domain.ScheduleStatusScheduled, domain.ScheduleStatusPendingConfirmation})
+}
+
+// GetMemberScheduleStats returns schedule stats for a member (completed, cancelled, no-show)
+func (s *PTService) GetMemberScheduleStats(ctx context.Context, memberID string) (completed int, cancelled int, noShow int, err error) {
+	return s.schedRepo.GetMemberScheduleStats(ctx, memberID)
 }

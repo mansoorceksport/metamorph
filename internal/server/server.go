@@ -91,7 +91,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, trendService)
 	authHandler := handler.NewAuthHandler(authService, tokenService)
 	saasHandler := handler.NewSaaSHandler(tenantRepo, userRepo, branchRepo)
-	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, deps.Config.Server.MaxUploadSizeMB)
+	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, schedRepo, deps.Config.Server.MaxUploadSizeMB)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
 
@@ -170,6 +170,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	pro.Get("/clients/:id/history", proHandler.GetClientHistory)
 	pro.Get("/dashboard/summary", proHandler.GetDashboardSummary)
 	pro.Get("/schedules", proHandler.GetMySchedules)                          // Get coach's schedules for date range
+	pro.Get("/schedules/hydrate", proHandler.HydrateSchedules)                // Login hydration - all statuses including cancelled
 	pro.Get("/members/:member_id/pbs", proHandler.GetMemberPBs)               // Get member's personal bests
 	pro.Get("/members/:id", proHandler.GetMember)                             // Get member details
 	pro.Get("/members/:id/scans", proHandler.GetMemberScans)                  // Get member's scan records

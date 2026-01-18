@@ -524,6 +524,10 @@ func (h *PTHandler) UpdateScheduleStatus(c *fiber.Ctx) error {
 		domain.ScheduleStatusCancelled:           true,
 		domain.ScheduleStatusNoShow:              true,
 		"in-progress":                            true, // Frontend uses this
+		"cancelled":                              true, // Frontend uses lowercase
+		"completed":                              true, // Frontend uses lowercase
+		"scheduled":                              true, // Frontend uses lowercase
+		"no-show":                                true, // Frontend uses lowercase
 	}
 	if !validStatuses[req.Status] {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid status value"})

@@ -141,3 +141,26 @@ func (r *MongoSetLogRepository) DeleteByScheduleID(ctx context.Context, schedule
 	_, err := r.collection.DeleteMany(ctx, bson.M{"schedule_id": scheduleID})
 	return err
 }
+
+// SoftDelete sets the deleted_at timestamp instead of removing the document
+func (r *MongoSetLogRepository) SoftDelete(ctx context.Context, id string) error {
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return domain.ErrInvalidID
+	}
+
+	now := time.Now()
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": oid}, bson.M{
+		"$set": bson.M{
+			"deleted_at": now,
+			"updated_at": now,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to soft delete set log: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return domain.ErrSessionNotFound
+	}
+	return nil
+}

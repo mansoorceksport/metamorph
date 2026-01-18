@@ -73,6 +73,35 @@ func (r *MongoScheduleRepository) GetByCoach(ctx context.Context, coachID string
 			"$gte": from,
 			"$lte": to,
 		},
+		// Exclude cancelled and soft-deleted schedules
+		"status":     bson.M{"$nin": []string{domain.ScheduleStatusCancelled, "cancelled"}},
+		"deleted_at": bson.M{"$exists": false},
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var schedules []*domain.Schedule
+	if err := cursor.All(ctx, &schedules); err != nil {
+		return nil, err
+	}
+	return schedules, nil
+}
+
+// GetByCoachAllStatuses returns ALL schedules including cancelled (for login hydration)
+// Only excludes soft-deleted schedules
+func (r *MongoScheduleRepository) GetByCoachAllStatuses(ctx context.Context, coachID string, from, to time.Time) ([]*domain.Schedule, error) {
+	filter := bson.M{
+		"coach_id": coachID,
+		"start_time": bson.M{
+			"$gte": from,
+			"$lte": to,
+		},
+		// Only exclude soft-deleted, keep all statuses including cancelled
+		"deleted_at": bson.M{"$exists": false},
 	}
 
 	cursor, err := r.collection.Find(ctx, filter)
@@ -252,4 +281,70 @@ func (r *MongoScheduleRepository) GetAttendanceByCoach(ctx context.Context, coac
 		return nil, err
 	}
 	return schedules, nil
+}
+
+// SoftDelete sets the deleted_at timestamp instead of removing the document
+func (r *MongoScheduleRepository) SoftDelete(ctx context.Context, id string) error {
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return domain.ErrInvalidID
+	}
+
+	now := time.Now()
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": oid}, bson.M{
+		"$set": bson.M{
+			"deleted_at": now,
+			"updated_at": now,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to soft delete schedule: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return domain.ErrScheduleNotFound
+	}
+	return nil
+}
+
+// GetMemberScheduleStats returns schedule status counts for a member
+func (r *MongoScheduleRepository) GetMemberScheduleStats(ctx context.Context, memberID string) (completed int, cancelled int, noShow int, err error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"member_id":  memberID,
+			"deleted_at": bson.M{"$exists": false}, // Exclude soft-deleted
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   "$status",
+			"count": bson.M{"$sum": 1},
+		}}},
+	}
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to aggregate member stats: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	type statusCount struct {
+		Status string `bson:"_id"`
+		Count  int    `bson:"count"`
+	}
+
+	var results []statusCount
+	if err := cursor.All(ctx, &results); err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to decode member stats: %w", err)
+	}
+
+	for _, r := range results {
+		switch r.Status {
+		case domain.ScheduleStatusCompleted:
+			completed = r.Count
+		case domain.ScheduleStatusCancelled:
+			cancelled = r.Count
+		case domain.ScheduleStatusNoShow:
+			noShow = r.Count
+		}
+	}
+
+	return completed, cancelled, noShow, nil
 }
