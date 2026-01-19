@@ -44,7 +44,7 @@ func (h *AnalyticsHandler) GetHistory(c *fiber.Ctx) error {
 		limit = 100
 	}
 
-	history, err := h.analyticsService.GetHistory(c.Context(), userID, limit)
+	history, err := h.analyticsService.GetHistory(c.UserContext(), userID, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
@@ -68,7 +68,7 @@ func (h *AnalyticsHandler) GetRecap(c *fiber.Ctx) error {
 		})
 	}
 
-	recap, err := h.trendService.GenerateTrendRecap(c.Context(), userID)
+	recap, err := h.trendService.GenerateTrendRecap(c.UserContext(), userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,

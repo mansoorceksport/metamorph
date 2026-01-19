@@ -50,7 +50,7 @@ func (h *PTHandler) CreatePackageTemplate(c *fiber.Ctx) error {
 
 	// Validate Branch (if provided)
 	if req.BranchID != "" {
-		branch, err := h.branchRepo.GetByID(c.Context(), req.BranchID)
+		branch, err := h.branchRepo.GetByID(c.UserContext(), req.BranchID)
 		if err != nil {
 			if err == domain.ErrNotFound {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Branch not found"})
@@ -70,7 +70,7 @@ func (h *PTHandler) CreatePackageTemplate(c *fiber.Ctx) error {
 		Price:         req.Price,
 	}
 
-	if err := h.ptService.CreatePackageTemplate(c.Context(), pkg); err != nil {
+	if err := h.ptService.CreatePackageTemplate(c.UserContext(), pkg); err != nil {
 		if err == domain.ErrInvalidSessionAmount {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -87,7 +87,7 @@ func (h *PTHandler) ListPackageTemplates(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing tenant context"})
 	}
 
-	packages, err := h.ptService.GetPackageTemplatesByTenant(c.Context(), tenantID)
+	packages, err := h.ptService.GetPackageTemplatesByTenant(c.UserContext(), tenantID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -98,7 +98,7 @@ func (h *PTHandler) ListPackageTemplates(c *fiber.Ctx) error {
 // GetPackageTemplate GET /v1/tenant-admin/packages/:id
 func (h *PTHandler) GetPackageTemplate(c *fiber.Ctx) error {
 	id := c.Params("id")
-	pkg, err := h.ptService.GetPackageTemplate(c.Context(), id)
+	pkg, err := h.ptService.GetPackageTemplate(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrPackageTemplateNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Package not found"})
@@ -117,7 +117,7 @@ func (h *PTHandler) UpdatePackageTemplate(c *fiber.Ctx) error {
 	}
 
 	req.ID = id
-	if err := h.ptService.UpdatePackageTemplate(c.Context(), &req); err != nil {
+	if err := h.ptService.UpdatePackageTemplate(c.UserContext(), &req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -152,7 +152,7 @@ func (h *PTHandler) CreateContract(c *fiber.Ctx) error {
 		TenantID:  tenantID,
 	}
 
-	if err := h.ptService.CreateContract(c.Context(), contract); err != nil {
+	if err := h.ptService.CreateContract(c.UserContext(), contract); err != nil {
 		if err == domain.ErrBranchMismatch {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -169,7 +169,7 @@ func (h *PTHandler) ListContracts(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing tenant context"})
 	}
 	// Future: Filters from query params
-	contracts, err := h.ptService.GetContractsByTenant(c.Context(), tenantID)
+	contracts, err := h.ptService.GetContractsByTenant(c.UserContext(), tenantID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -183,7 +183,7 @@ func (h *PTHandler) GetMyContracts(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing user context"})
 	}
 
-	contracts, err := h.ptService.GetActiveContractsByMember(c.Context(), memberID)
+	contracts, err := h.ptService.GetActiveContractsByMember(c.UserContext(), memberID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -193,7 +193,7 @@ func (h *PTHandler) GetMyContracts(c *fiber.Ctx) error {
 // GetContract GET /v1/contracts/:id (Admin/Coach/Member)
 func (h *PTHandler) GetContract(c *fiber.Ctx) error {
 	id := c.Params("id")
-	contract, err := h.ptService.GetContract(c.Context(), id)
+	contract, err := h.ptService.GetContract(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrContractNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Contract not found"})
@@ -225,7 +225,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	println("[DEBUG] CreateSchedule - tenantID:", tenantID)
 
 	// Fetch user to get current HomeBranchID (dynamic lookup)
-	user, err := h.userRepo.GetByID(c.Context(), userID)
+	user, err := h.userRepo.GetByID(c.UserContext(), userID)
 	if err != nil {
 		println("[DEBUG] CreateSchedule - Failed to fetch user:", err.Error())
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Failed to fetch user profile"})
@@ -273,7 +273,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	contractID := req.ContractID
 	if contractID == "" {
 		println("[DEBUG] CreateSchedule - Resolving contract for coach:", userID, "member:", req.MemberID)
-		contract, err := h.ptService.GetFirstActiveContractByCoachAndMember(c.Context(), userID, req.MemberID)
+		contract, err := h.ptService.GetFirstActiveContractByCoachAndMember(c.UserContext(), userID, req.MemberID)
 		if err != nil {
 			println("[DEBUG] CreateSchedule - Contract resolution failed:", err.Error())
 			if err == domain.ErrContractNotFound {
@@ -304,7 +304,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 		Remarks:     req.Remarks,
 	}
 
-	if err := h.ptService.CreateSchedule(c.Context(), schedule); err != nil {
+	if err := h.ptService.CreateSchedule(c.UserContext(), schedule); err != nil {
 		println("[DEBUG] CreateSchedule - ptService.CreateSchedule failed:", err.Error())
 		if err == domain.ErrPackageDepleted {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
@@ -374,7 +374,7 @@ func (h *PTHandler) RescheduleSession(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	err := h.ptService.RescheduleSession(c.Context(), scheduleID, req.StartTime, req.EndTime, actorRole, userID)
+	err := h.ptService.RescheduleSession(c.UserContext(), scheduleID, req.StartTime, req.EndTime, actorRole, userID)
 	if err != nil {
 		if err == domain.ErrUnauthorizedReschedule {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": err.Error()})
@@ -395,7 +395,7 @@ func (h *PTHandler) CompleteSession(c *fiber.Ctx) error {
 	scheduleID := c.Params("id")
 
 	// Get schedule first (for volume aggregation later)
-	schedule, err := h.ptService.GetSchedule(c.Context(), scheduleID)
+	schedule, err := h.ptService.GetSchedule(c.UserContext(), scheduleID)
 	if err != nil {
 		if err == domain.ErrScheduleNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Schedule not found"})

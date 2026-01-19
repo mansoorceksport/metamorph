@@ -97,7 +97,7 @@ func (h *ScanHandler) DigitizeScan(c *fiber.Ctx) error {
 	imageURL := imageFile.Filename
 
 	// Process the scan
-	record, err := h.scanService.ProcessScan(c.Context(), userID, imageData, imageURL)
+	record, err := h.scanService.ProcessScan(c.UserContext(), userID, imageData, imageURL)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
@@ -139,7 +139,7 @@ func (h *ScanHandler) ListScans(c *fiber.Ctx) error {
 		})
 	}
 
-	records, err := h.scanService.GetAllScans(c.Context(), userID)
+	records, err := h.scanService.GetAllScans(c.UserContext(), userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
@@ -171,7 +171,7 @@ func (h *ScanHandler) GetScan(c *fiber.Ctx) error {
 		})
 	}
 
-	record, err := h.scanService.GetScanByID(c.Context(), userID, scanID)
+	record, err := h.scanService.GetScanByID(c.UserContext(), userID, scanID)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -224,7 +224,7 @@ func (h *ScanHandler) UpdateScan(c *fiber.Ctx) error {
 		})
 	}
 
-	record, err := h.scanService.UpdateScan(c.Context(), userID, scanID, updates)
+	record, err := h.scanService.UpdateScan(c.UserContext(), userID, scanID, updates)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -268,7 +268,7 @@ func (h *ScanHandler) DeleteScan(c *fiber.Ctx) error {
 		})
 	}
 
-	err := h.scanService.DeleteScan(c.Context(), userID, scanID)
+	err := h.scanService.DeleteScan(c.UserContext(), userID, scanID)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{

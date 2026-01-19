@@ -50,7 +50,7 @@ func (h *SaaSHandler) CreateTenant(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "join_code is required"})
 	}
 
-	if err := h.tenantRepo.Create(c.Context(), &tenant); err != nil {
+	if err := h.tenantRepo.Create(c.UserContext(), &tenant); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -60,7 +60,7 @@ func (h *SaaSHandler) CreateTenant(c *fiber.Ctx) error {
 // GetTenant handles GET /v1/tenants/:id
 func (h *SaaSHandler) GetTenant(c *fiber.Ctx) error {
 	id := c.Params("id")
-	tenant, err := h.tenantRepo.GetByID(c.Context(), id)
+	tenant, err := h.tenantRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Tenant not found"})
@@ -88,7 +88,7 @@ func (h *SaaSHandler) UpdateTenant(c *fiber.Ctx) error {
 	}
 
 	// Fetch existing tenant
-	existing, err := h.tenantRepo.GetByID(c.Context(), id)
+	existing, err := h.tenantRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Tenant not found"})
@@ -116,7 +116,7 @@ func (h *SaaSHandler) UpdateTenant(c *fiber.Ctx) error {
 	}
 
 	if updated {
-		if err := h.tenantRepo.Update(c.Context(), existing); err != nil {
+		if err := h.tenantRepo.Update(c.UserContext(), existing); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	}
@@ -157,7 +157,7 @@ func (h *SaaSHandler) AuthSync(c *fiber.Ctx) error {
 		user.Email = c.Locals("email").(string)
 	}
 
-	if err := h.userRepo.UpsertByFirebaseUID(c.Context(), user); err != nil {
+	if err := h.userRepo.UpsertByFirebaseUID(c.UserContext(), user); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -186,7 +186,7 @@ func (h *SaaSHandler) CreateTenantAdmin(c *fiber.Ctx) error {
 	}
 
 	// Validate Tenant Exists
-	if _, err := h.tenantRepo.GetByID(c.Context(), req.TenantID); err != nil {
+	if _, err := h.tenantRepo.GetByID(c.UserContext(), req.TenantID); err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Tenant not found"})
 		}
@@ -202,7 +202,7 @@ func (h *SaaSHandler) CreateTenantAdmin(c *fiber.Ctx) error {
 		TenantID:    req.TenantID,
 	}
 
-	if err := h.userRepo.Create(c.Context(), user); err != nil {
+	if err := h.userRepo.Create(c.UserContext(), user); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -215,7 +215,7 @@ func (h *SaaSHandler) ListTenantAdmins(c *fiber.Ctx) error {
 	tenantID := c.Query("tenant_id")
 
 	if tenantID != "" {
-		users, err := h.userRepo.GetByTenantAndRole(c.Context(), tenantID, domain.RoleTenantAdmin)
+		users, err := h.userRepo.GetByTenantAndRole(c.UserContext(), tenantID, domain.RoleTenantAdmin)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -223,7 +223,7 @@ func (h *SaaSHandler) ListTenantAdmins(c *fiber.Ctx) error {
 	}
 
 	// Get all tenant admins
-	users, err := h.userRepo.GetByRole(c.Context(), domain.RoleTenantAdmin)
+	users, err := h.userRepo.GetByRole(c.UserContext(), domain.RoleTenantAdmin)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -256,7 +256,7 @@ func (h *SaaSHandler) CreateUser(c *fiber.Ctx) error {
 	// Validate Branch Access (if provided)
 	validBranches := []string{}
 	if len(req.BranchAccess) > 0 {
-		branches, err := h.branchRepo.GetByTenantID(c.Context(), tID)
+		branches, err := h.branchRepo.GetByTenantID(c.UserContext(), tID)
 		if err == nil {
 			branchMap := make(map[string]bool)
 			for _, b := range branches {
@@ -280,7 +280,7 @@ func (h *SaaSHandler) CreateUser(c *fiber.Ctx) error {
 		BranchAccess: validBranches,
 	}
 
-	if err := h.userRepo.Create(c.Context(), user); err != nil {
+	if err := h.userRepo.Create(c.UserContext(), user); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(user)
@@ -289,7 +289,7 @@ func (h *SaaSHandler) CreateUser(c *fiber.Ctx) error {
 // GetUser handles GET /v1/users/:id
 func (h *SaaSHandler) GetUser(c *fiber.Ctx) error {
 	id := c.Params("id")
-	user, err := h.userRepo.GetByID(c.Context(), id)
+	user, err := h.userRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
@@ -324,7 +324,7 @@ func (h *SaaSHandler) UpdateUser(c *fiber.Ctx) error {
 	}
 
 	// Security: Fetch existing user and verify tenant BEFORE updating
-	existing, err := h.userRepo.GetByID(c.Context(), id)
+	existing, err := h.userRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
@@ -370,7 +370,7 @@ func (h *SaaSHandler) UpdateUser(c *fiber.Ctx) error {
 
 	if updated {
 		existing.UpdatedAt = time.Now()
-		if err := h.userRepo.Update(c.Context(), existing); err != nil {
+		if err := h.userRepo.Update(c.UserContext(), existing); err != nil {
 			if err == domain.ErrNotFound {
 				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
 			}
@@ -386,7 +386,7 @@ func (h *SaaSHandler) DeleteUser(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	// Security: Fetch existing user and verify tenant BEFORE delete
-	user, err := h.userRepo.GetByID(c.Context(), id)
+	user, err := h.userRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
@@ -401,7 +401,7 @@ func (h *SaaSHandler) DeleteUser(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := h.userRepo.Delete(c.Context(), id); err != nil {
+	if err := h.userRepo.Delete(c.UserContext(), id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -415,7 +415,7 @@ func (h *SaaSHandler) ListUsers(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "TenantID not found in token"})
 	}
 
-	users, err := h.userRepo.GetByTenant(c.Context(), tenantID.(string))
+	users, err := h.userRepo.GetByTenant(c.UserContext(), tenantID.(string))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -436,7 +436,7 @@ func (h *SaaSHandler) JoinTenant(c *fiber.Ctx) error {
 	}
 
 	// 1. Find Tenant by Code
-	tenant, err := h.tenantRepo.GetByJoinCode(c.Context(), req.JoinCode)
+	tenant, err := h.tenantRepo.GetByJoinCode(c.UserContext(), req.JoinCode)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Invalid join code"})
@@ -451,7 +451,7 @@ func (h *SaaSHandler) JoinTenant(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
 	}
 
-	user, err := h.userRepo.GetByID(c.Context(), userID)
+	user, err := h.userRepo.GetByID(c.UserContext(), userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch user profile"})
 	}
@@ -463,7 +463,7 @@ func (h *SaaSHandler) JoinTenant(c *fiber.Ctx) error {
 	// So we can just set TenantID and call Update.
 	user.TenantID = tenant.ID
 
-	if err := h.userRepo.Update(c.Context(), user); err != nil {
+	if err := h.userRepo.Update(c.UserContext(), user); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to join tenant"})
 	}
 
@@ -489,7 +489,7 @@ func (h *SaaSHandler) JoinBranch(c *fiber.Ctx) error {
 	}
 
 	// 1. Find Branch by Code
-	branch, err := h.branchRepo.GetByJoinCode(c.Context(), req.JoinCode)
+	branch, err := h.branchRepo.GetByJoinCode(c.UserContext(), req.JoinCode)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Invalid join code"})
@@ -503,7 +503,7 @@ func (h *SaaSHandler) JoinBranch(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
 	}
 
-	user, err := h.userRepo.GetByID(c.Context(), userID)
+	user, err := h.userRepo.GetByID(c.UserContext(), userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch user profile"})
 	}
@@ -529,7 +529,7 @@ func (h *SaaSHandler) JoinBranch(c *fiber.Ctx) error {
 
 	if !alreadyJoined {
 		user.BranchAccess = append(user.BranchAccess, branch.ID)
-		if err := h.userRepo.Update(c.Context(), user); err != nil {
+		if err := h.userRepo.Update(c.UserContext(), user); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to join branch"})
 		}
 	}
@@ -570,7 +570,7 @@ func (h *SaaSHandler) CreateCoach(c *fiber.Ctx) error {
 
 	// Validate Home Branch (if provided)
 	if req.HomeBranchID != "" {
-		branch, err := h.branchRepo.GetByID(c.Context(), req.HomeBranchID)
+		branch, err := h.branchRepo.GetByID(c.UserContext(), req.HomeBranchID)
 		if err != nil {
 			if err == domain.ErrNotFound {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Home Branch not found"})
@@ -592,7 +592,7 @@ func (h *SaaSHandler) CreateCoach(c *fiber.Ctx) error {
 		HomeBranchID: req.HomeBranchID, // Optional
 	}
 
-	if err := h.userRepo.Create(c.Context(), user); err != nil {
+	if err := h.userRepo.Create(c.UserContext(), user); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(user)
@@ -608,7 +608,7 @@ func (h *SaaSHandler) ListCoaches(c *fiber.Ctx) error {
 	}
 	tID := tenantID.(string)
 
-	coaches, err := h.userRepo.GetByTenantAndRole(c.Context(), tID, domain.RoleCoach)
+	coaches, err := h.userRepo.GetByTenantAndRole(c.UserContext(), tID, domain.RoleCoach)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -618,7 +618,7 @@ func (h *SaaSHandler) ListCoaches(c *fiber.Ctx) error {
 // GetCoach handles GET /v1/coaches/:id
 func (h *SaaSHandler) GetCoach(c *fiber.Ctx) error {
 	id := c.Params("id")
-	coach, err := h.userRepo.GetByID(c.Context(), id)
+	coach, err := h.userRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Coach not found"})
@@ -658,7 +658,7 @@ func (h *SaaSHandler) UpdateCoach(c *fiber.Ctx) error {
 	}
 
 	// Fetch existing user to verify they're a coach
-	existing, err := h.userRepo.GetByID(c.Context(), id)
+	existing, err := h.userRepo.GetByID(c.UserContext(), id)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Coach not found"})
@@ -688,7 +688,7 @@ func (h *SaaSHandler) UpdateCoach(c *fiber.Ctx) error {
 
 	existing.UpdatedAt = time.Now()
 
-	if err := h.userRepo.Update(c.Context(), existing); err != nil {
+	if err := h.userRepo.Update(c.UserContext(), existing); err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Coach not found"})
 		}

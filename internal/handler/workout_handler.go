@@ -35,7 +35,7 @@ func (h *WorkoutHandler) ListExercises(c *fiber.Ctx) error {
 		filter["name"] = nameFilter
 	}
 	// public
-	exs, err := h.exerciseRepo.List(c.Context(), filter)
+	exs, err := h.exerciseRepo.List(c.UserContext(), filter)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -48,7 +48,7 @@ func (h *WorkoutHandler) CreateExercise(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := h.exerciseRepo.Create(c.Context(), &req); err != nil {
+	if err := h.exerciseRepo.Create(c.UserContext(), &req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(req)
@@ -61,7 +61,7 @@ func (h *WorkoutHandler) UpdateExercise(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 	req.ID = id
-	if err := h.exerciseRepo.Update(c.Context(), &req); err != nil {
+	if err := h.exerciseRepo.Update(c.UserContext(), &req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(req)
@@ -69,7 +69,7 @@ func (h *WorkoutHandler) UpdateExercise(c *fiber.Ctx) error {
 
 func (h *WorkoutHandler) DeleteExercise(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if err := h.exerciseRepo.Delete(c.Context(), id); err != nil {
+	if err := h.exerciseRepo.Delete(c.UserContext(), id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "deleted"})
@@ -78,7 +78,7 @@ func (h *WorkoutHandler) DeleteExercise(c *fiber.Ctx) error {
 // --- Templates CRUD ---
 
 func (h *WorkoutHandler) ListTemplates(c *fiber.Ctx) error {
-	tmps, err := h.templateRepo.List(c.Context())
+	tmps, err := h.templateRepo.List(c.UserContext())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -90,7 +90,7 @@ func (h *WorkoutHandler) CreateTemplate(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := h.templateRepo.Create(c.Context(), &req); err != nil {
+	if err := h.templateRepo.Create(c.UserContext(), &req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(fiber.StatusCreated).JSON(req)
@@ -103,7 +103,7 @@ func (h *WorkoutHandler) UpdateTemplate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 	req.ID = id
-	if err := h.templateRepo.Update(c.Context(), &req); err != nil {
+	if err := h.templateRepo.Update(c.UserContext(), &req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(req)
@@ -111,7 +111,7 @@ func (h *WorkoutHandler) UpdateTemplate(c *fiber.Ctx) error {
 
 func (h *WorkoutHandler) DeleteTemplate(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if err := h.templateRepo.Delete(c.Context(), id); err != nil {
+	if err := h.templateRepo.Delete(c.UserContext(), id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "deleted"})
@@ -132,7 +132,7 @@ func (h *WorkoutHandler) InitializeSession(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	session, err := h.workoutService.InitializeSession(c.Context(), req.ScheduleID, req.TemplateID)
+	session, err := h.workoutService.InitializeSession(c.UserContext(), req.ScheduleID, req.TemplateID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -143,7 +143,7 @@ func (h *WorkoutHandler) InitializeSession(c *fiber.Ctx) error {
 func (h *WorkoutHandler) ListScheduleSets(c *fiber.Ctx) error {
 	scheduleID := c.Params("schedule_id")
 
-	sets, err := h.workoutService.GetSetsBySchedule(c.Context(), scheduleID)
+	sets, err := h.workoutService.GetSetsBySchedule(c.UserContext(), scheduleID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -155,7 +155,7 @@ func (h *WorkoutHandler) ListScheduleSets(c *fiber.Ctx) error {
 func (h *WorkoutHandler) ListScheduleExercises(c *fiber.Ctx) error {
 	scheduleID := c.Params("schedule_id")
 
-	exercises, err := h.workoutService.GetExercisesBySchedule(c.Context(), scheduleID)
+	exercises, err := h.workoutService.GetExercisesBySchedule(c.UserContext(), scheduleID)
 	if err != nil {
 		if err == domain.ErrSessionNotFound {
 			return c.JSON([]interface{}{})
@@ -183,7 +183,7 @@ func (h *WorkoutHandler) AddExercise(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	planned, err := h.workoutService.AddExerciseToSession(c.Context(), scheduleID, req.ExerciseID, req.ClientID, req.TargetSets, req.TargetReps, req.RestSeconds, req.Notes, req.Order)
+	planned, err := h.workoutService.AddExerciseToSession(c.UserContext(), scheduleID, req.ExerciseID, req.ClientID, req.TargetSets, req.TargetReps, req.RestSeconds, req.Notes, req.Order)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -206,7 +206,7 @@ func (h *WorkoutHandler) AddExercise(c *fiber.Ctx) error {
 // RemoveExercise DELETE /v1/pro/exercises/:id
 func (h *WorkoutHandler) RemoveExercise(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if err := h.workoutService.RemovePlannedExercise(c.Context(), id); err != nil {
+	if err := h.workoutService.RemovePlannedExercise(c.UserContext(), id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "deleted"})
@@ -235,7 +235,7 @@ func (h *WorkoutHandler) UpdatePlannedExercise(c *fiber.Ctx) error {
 		Order:       req.Order,
 	}
 
-	if err := h.workoutService.UpdatePlannedExercise(c.Context(), ex); err != nil {
+	if err := h.workoutService.UpdatePlannedExercise(c.UserContext(), ex); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"message": "updated"})
@@ -271,7 +271,7 @@ func (h *WorkoutHandler) LogSessionSetByULID(c *fiber.Ctx) error {
 	}
 
 	// req.ExerciseID matches "exercise_ulid" json tag which frontend sends safely
-	if err := h.workoutService.LogSetByULID(c.Context(), sessionID, req.ExerciseID, setLog); err != nil {
+	if err := h.workoutService.LogSetByULID(c.UserContext(), sessionID, req.ExerciseID, setLog); err != nil {
 		if err == domain.ErrExerciseULIDNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -320,7 +320,7 @@ func (h *WorkoutHandler) UpdateSetLog(c *fiber.Ctx) error {
 		completed = *req.Completed
 	}
 
-	err := h.workoutService.UpdateSetLog(c.Context(), id, weight, reps, remarks, completed)
+	err := h.workoutService.UpdateSetLog(c.UserContext(), id, weight, reps, remarks, completed)
 	if err != nil {
 		if err == domain.ErrSessionNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Set log not found"})
@@ -338,7 +338,7 @@ func (h *WorkoutHandler) DeleteSetLog(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Set log ID is required"})
 	}
 
-	err := h.workoutService.DeleteSetLog(c.Context(), id)
+	err := h.workoutService.DeleteSetLog(c.UserContext(), id)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -358,7 +358,7 @@ func (h *WorkoutHandler) AddSetToExercise(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	setLog, err := h.workoutService.AddSetToExercise(c.Context(), exerciseID, req.ClientID, req.SetIndex)
+	setLog, err := h.workoutService.AddSetToExercise(c.UserContext(), exerciseID, req.ClientID, req.SetIndex)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

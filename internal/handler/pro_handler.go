@@ -78,7 +78,7 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 	coachID := c.Locals("userID").(string)
 
 	// Query 1: Get contracts with member info (aggregation)
-	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.Context(), coachID)
+	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.UserContext(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -92,7 +92,7 @@ func (h *ProHandler) GetClients(c *fiber.Ctx) error {
 	}
 
 	// Query 2: Batch fetch schedule counts for all contracts (single aggregation)
-	scheduleCounts, err := h.ptService.GetActiveScheduleCountsBatch(c.Context(), contractIDs)
+	scheduleCounts, err := h.ptService.GetActiveScheduleCountsBatch(c.UserContext(), contractIDs)
 	if err != nil {
 		// Log but proceed with zero counts
 		fmt.Printf("Warning: Failed to get schedule counts: %v\n", err)
@@ -155,7 +155,7 @@ func (h *ProHandler) GetClientsSimple(c *fiber.Ctx) error {
 	coachID := c.Locals("userID").(string)
 
 	// Use the same aggregation but skip expensive schedule count computation
-	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.Context(), coachID)
+	contractsWithMembers, err := h.ptService.GetActiveContractsWithMembers(c.UserContext(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -200,7 +200,7 @@ func (h *ProHandler) GetClientHistory(c *fiber.Ctx) error {
 	clientID := c.Params("id") // Member ID
 
 	// Verify access: Does coach have ANY active contract with this member?
-	contracts, err := h.ptService.GetActiveContractsByCoach(c.Context(), coachID)
+	contracts, err := h.ptService.GetActiveContractsByCoach(c.UserContext(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -224,7 +224,7 @@ func (h *ProHandler) GetClientHistory(c *fiber.Ctx) error {
 		limit = l
 	}
 
-	history, err := h.analyticsService.GetHistory(c.Context(), clientID, limit)
+	history, err := h.analyticsService.GetHistory(c.UserContext(), clientID, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -237,7 +237,7 @@ func (h *ProHandler) GetClientHistory(c *fiber.Ctx) error {
 func (h *ProHandler) GetDashboardSummary(c *fiber.Ctx) error {
 	coachID := c.Locals("userID").(string)
 
-	summary, err := h.dashboardService.GetCoachSummary(c.Context(), coachID)
+	summary, err := h.dashboardService.GetCoachSummary(c.UserContext(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -286,7 +286,7 @@ func (h *ProHandler) GetMySchedules(c *fiber.Ctx) error {
 		to = from.Add(7 * 24 * time.Hour)
 	}
 
-	schedules, err := h.ptService.GetSchedules(c.Context(), "coach", coachID, from, to)
+	schedules, err := h.ptService.GetSchedules(c.UserContext(), "coach", coachID, from, to)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -300,7 +300,7 @@ func (h *ProHandler) GetMySchedules(c *fiber.Ctx) error {
 		if name, ok := memberCache[schedule.MemberID]; ok {
 			memberName = name
 		} else {
-			user, err := h.userRepo.GetByID(c.Context(), schedule.MemberID)
+			user, err := h.userRepo.GetByID(c.UserContext(), schedule.MemberID)
 			if err == nil && user != nil {
 				memberName = user.Name
 				memberCache[schedule.MemberID] = memberName
@@ -353,7 +353,7 @@ func (h *ProHandler) HydrateSchedules(c *fiber.Ctx) error {
 	}
 
 	// Use schedRepo directly to get ALL statuses (including cancelled)
-	schedules, err := h.schedRepo.GetByCoachAllStatuses(c.Context(), coachID, from, to)
+	schedules, err := h.schedRepo.GetByCoachAllStatuses(c.UserContext(), coachID, from, to)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -367,7 +367,7 @@ func (h *ProHandler) HydrateSchedules(c *fiber.Ctx) error {
 		if name, ok := memberCache[schedule.MemberID]; ok {
 			memberName = name
 		} else {
-			user, err := h.userRepo.GetByID(c.Context(), schedule.MemberID)
+			user, err := h.userRepo.GetByID(c.UserContext(), schedule.MemberID)
 			if err == nil && user != nil {
 				memberName = user.Name
 				memberCache[schedule.MemberID] = memberName
@@ -390,7 +390,7 @@ func (h *ProHandler) GetMemberPBs(c *fiber.Ctx) error {
 	memberID := c.Params("member_id")
 
 	// Verify access: Coach must have an active contract with this member
-	contracts, err := h.ptService.GetActiveContractsByCoach(c.Context(), coachID)
+	contracts, err := h.ptService.GetActiveContractsByCoach(c.UserContext(), coachID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -408,7 +408,7 @@ func (h *ProHandler) GetMemberPBs(c *fiber.Ctx) error {
 	}
 
 	// Fetch PBs
-	pbs, err := h.pbRepo.GetByMember(c.Context(), memberID)
+	pbs, err := h.pbRepo.GetByMember(c.UserContext(), memberID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -458,7 +458,7 @@ func (h *ProHandler) CreateMember(c *fiber.Ctx) error {
 		TenantID: tID,
 	}
 
-	if err := h.userRepo.Create(c.Context(), user); err != nil {
+	if err := h.userRepo.Create(c.UserContext(), user); err != nil {
 		// Check for duplicate key error (email already exists)
 		if strings.Contains(err.Error(), "E11000") || strings.Contains(err.Error(), "duplicate key") {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "A member with this email already exists"})
@@ -470,7 +470,7 @@ func (h *ProHandler) CreateMember(c *fiber.Ctx) error {
 	var contract *domain.PTContract
 	if req.PackageID != "" {
 		// Validate package belongs to tenant
-		pkg, err := h.ptService.GetPackageTemplate(c.Context(), req.PackageID)
+		pkg, err := h.ptService.GetPackageTemplate(c.UserContext(), req.PackageID)
 		if err != nil {
 			// Member created but package not found - return member with warning
 			return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -494,7 +494,7 @@ func (h *ProHandler) CreateMember(c *fiber.Ctx) error {
 			TenantID:  tID,
 		}
 
-		if err := h.ptService.CreateContract(c.Context(), contract); err != nil {
+		if err := h.ptService.CreateContract(c.UserContext(), contract); err != nil {
 			return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 				"member":  user,
 				"warning": fmt.Sprintf("Failed to create contract: %s", err.Error()),
@@ -523,7 +523,7 @@ func (h *ProHandler) DigitizeMemberScan(c *fiber.Ctx) error {
 	}
 	tID := tenantID.(string)
 
-	member, err := h.userRepo.GetByID(c.Context(), memberID)
+	member, err := h.userRepo.GetByID(c.UserContext(), memberID)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Member not found"})
@@ -576,7 +576,7 @@ func (h *ProHandler) DigitizeMemberScan(c *fiber.Ctx) error {
 	imageURL := imageFile.Filename
 
 	// Process the scan for the MEMBER (not the coach)
-	record, err := h.scanService.ProcessScan(c.Context(), memberID, imageData, imageURL)
+	record, err := h.scanService.ProcessScan(c.UserContext(), memberID, imageData, imageURL)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to process scan: " + err.Error()})
 	}
