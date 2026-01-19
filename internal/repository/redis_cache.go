@@ -8,6 +8,9 @@ import (
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -125,4 +128,104 @@ func (r *RedisCacheRepository) GetTrendRecap(ctx context.Context, userID string)
 func (r *RedisCacheRepository) InvalidateTrendRecap(ctx context.Context, userID string) error {
 	key := fmt.Sprintf("%s%s", trendRecapKeyPrefix, userID)
 	return r.client.Del(ctx, key).Err()
+}
+
+// =============================================================================
+// Generic Cache Operations with OpenTelemetry Tracing
+// =============================================================================
+
+var ErrCacheMiss = fmt.Errorf("cache miss")
+
+// Get retrieves a value from cache by key with OTel tracing
+func (r *RedisCacheRepository) Get(ctx context.Context, key string, dest interface{}) error {
+	tracer := otel.Tracer("redis")
+	ctx, span := tracer.Start(ctx, "redis.Get",
+		trace.WithAttributes(attribute.String("cache.key", key)),
+	)
+	defer span.End()
+
+	data, err := r.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			span.SetAttributes(attribute.String("cache.result", "miss"))
+			return ErrCacheMiss
+		}
+		span.RecordError(err)
+		return fmt.Errorf("redis get error: %w", err)
+	}
+
+	span.SetAttributes(attribute.String("cache.result", "hit"))
+	if err := json.Unmarshal(data, dest); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("unmarshal error: %w", err)
+	}
+
+	return nil
+}
+
+// Set stores a value in cache with TTL and OTel tracing
+func (r *RedisCacheRepository) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+	tracer := otel.Tracer("redis")
+	ctx, span := tracer.Start(ctx, "redis.Set",
+		trace.WithAttributes(
+			attribute.String("cache.key", key),
+			attribute.Int64("cache.ttl_seconds", int64(ttl.Seconds())),
+		),
+	)
+	defer span.End()
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("marshal error: %w", err)
+	}
+
+	if err := r.client.Set(ctx, key, data, ttl).Err(); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("redis set error: %w", err)
+	}
+
+	return nil
+}
+
+// Delete removes keys from cache with OTel tracing
+func (r *RedisCacheRepository) Delete(ctx context.Context, keys ...string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	tracer := otel.Tracer("redis")
+	ctx, span := tracer.Start(ctx, "redis.Delete",
+		trace.WithAttributes(attribute.Int("cache.key_count", len(keys))),
+	)
+	defer span.End()
+
+	if err := r.client.Del(ctx, keys...).Err(); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("redis delete error: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteByPattern removes keys matching a pattern (use sparingly - O(N))
+func (r *RedisCacheRepository) DeleteByPattern(ctx context.Context, pattern string) error {
+	tracer := otel.Tracer("redis")
+	ctx, span := tracer.Start(ctx, "redis.DeleteByPattern",
+		trace.WithAttributes(attribute.String("cache.pattern", pattern)),
+	)
+	defer span.End()
+
+	keys, err := r.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("redis keys error: %w", err)
+	}
+
+	if len(keys) == 0 {
+		return nil
+	}
+
+	span.SetAttributes(attribute.Int("cache.matched_keys", len(keys)))
+	return r.client.Del(ctx, keys...).Err()
 }

@@ -9,6 +9,9 @@ import (
 
 	"github.com/mansoorceksport/metamorph/internal/domain"
 	"github.com/oklog/ulid/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type WorkoutService struct {
@@ -143,6 +146,13 @@ func (s *WorkoutService) InitializeSession(ctx context.Context, scheduleID strin
 // resolveScheduleID accepts either MongoDB ObjectID or ULID and resolves to the schedule's MongoDB ID
 // This handles the case where frontend sends ULID before schedule sync completes
 func (s *WorkoutService) resolveScheduleID(ctx context.Context, idOrClientID string) (string, error) {
+	// Start OTel span for tracing
+	tracer := otel.Tracer("workout-service")
+	ctx, span := tracer.Start(ctx, "resolveScheduleID",
+		trace.WithAttributes(attribute.String("input.id", idOrClientID)),
+	)
+	defer span.End()
+
 	// Check if it's a valid MongoDB ObjectID (24 hex chars, all lowercase hex)
 	isMongoID := len(idOrClientID) == 24
 	if isMongoID {
@@ -154,10 +164,13 @@ func (s *WorkoutService) resolveScheduleID(ctx context.Context, idOrClientID str
 		}
 	}
 
+	span.SetAttributes(attribute.Bool("is_mongo_id", isMongoID))
+
 	if isMongoID {
 		// Try to get by MongoDB ObjectID first
 		schedule, err := s.scheduleRepo.GetByID(ctx, idOrClientID)
 		if err == nil {
+			span.SetAttributes(attribute.String("resolved_via", "mongo_id"))
 			return schedule.ID, nil
 		}
 		// If not found by ID, fall through to try client_id
@@ -166,8 +179,10 @@ func (s *WorkoutService) resolveScheduleID(ctx context.Context, idOrClientID str
 	// Try to get by client_id (ULID)
 	schedule, err := s.scheduleRepo.GetByClientID(ctx, idOrClientID)
 	if err != nil {
+		span.RecordError(err)
 		return "", fmt.Errorf("schedule not found for ID/ULID: %s", idOrClientID)
 	}
+	span.SetAttributes(attribute.String("resolved_via", "client_id"))
 	return schedule.ID, nil
 }
 
