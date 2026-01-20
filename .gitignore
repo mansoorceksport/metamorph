@@ -8,3 +8,4 @@ bin/
 users.json
 scripts
 server_logs
+.DS_Store
