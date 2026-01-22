@@ -73,6 +73,32 @@ type BodyAnalysis struct {
 	Advice           []string `bson:"advice" json:"advice"`
 }
 
+// ScanListItem is a lightweight representation of a scan for list views
+// Only contains the essential fields needed for the UI list
+type ScanListItem struct {
+	ID           string    `bson:"_id" json:"id"`
+	TestDateTime time.Time `bson:"test_date_time" json:"test_date_time"`
+	Weight       float64   `bson:"weight" json:"weight"`
+	PBF          float64   `bson:"pbf" json:"pbf"` // Percent Body Fat
+	SMM          float64   `bson:"smm" json:"smm"` // Skeletal Muscle Mass
+}
+
+// ScanListResult represents a paginated list of scans
+type ScanListResult struct {
+	Items      []ScanListItem `json:"items"`
+	Total      int64          `json:"total"`
+	HasMore    bool           `json:"has_more"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+}
+
+// ScanListQuery represents the query parameters for listing scans
+type ScanListQuery struct {
+	Limit  int
+	Cursor string    // Format: "timestamp_id" for cursor-based pagination
+	From   time.Time // Optional: filter scans from this date
+	To     time.Time // Optional: filter scans until this date
+}
+
 // InBodyMetrics represents the raw metrics extracted from AI
 type InBodyMetrics struct {
 	// V1 Fields (Always present)
@@ -147,6 +173,10 @@ type InBodyRepository interface {
 	// GetRecentScansByMembers retrieves the N most recent scans for multiple members
 	// Returns a map of memberID -> [scans] for bulk processing
 	GetRecentScansByMembers(ctx context.Context, memberIDs []string, limit int) (map[string][]*InBodyRecord, error)
+
+	// FindPaginatedByUserID retrieves scans with cursor-based pagination and date filtering
+	// Returns lightweight ScanListItem records for efficient list rendering
+	FindPaginatedByUserID(ctx context.Context, userID string, query *ScanListQuery) (*ScanListResult, error)
 }
 
 // CacheRepository defines the interface for caching operations
@@ -171,6 +201,16 @@ type CacheRepository interface {
 
 	// InvalidateTrendRecap removes cached trend recap for a user
 	InvalidateTrendRecap(ctx context.Context, userID string) error
+
+	// SetScanByID caches a scan by its ID with TTL
+	SetScanByID(ctx context.Context, scanID string, record *InBodyRecord, ttl time.Duration) error
+
+	// GetScanByID retrieves a cached scan by its ID
+	// Returns nil if not found or expired
+	GetScanByID(ctx context.Context, scanID string) (*InBodyRecord, error)
+
+	// InvalidateScan removes a cached scan by its ID
+	InvalidateScan(ctx context.Context, scanID string) error
 }
 
 // DigitizerService defines the interface for AI-based metric extraction

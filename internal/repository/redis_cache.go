@@ -16,6 +16,7 @@ import (
 const (
 	latestScanKeyPrefix = "user:latest_scan:"
 	trendRecapKeyPrefix = "trend_recap:"
+	scanDetailKeyPrefix = "scan:detail:" // Cache for individual scan details
 )
 
 // RedisCacheRepository implements domain.CacheRepository using Redis
@@ -127,6 +128,54 @@ func (r *RedisCacheRepository) GetTrendRecap(ctx context.Context, userID string)
 // InvalidateTrendRecap removes cached trend recap for a user
 func (r *RedisCacheRepository) InvalidateTrendRecap(ctx context.Context, userID string) error {
 	key := fmt.Sprintf("%s%s", trendRecapKeyPrefix, userID)
+	return r.client.Del(ctx, key).Err()
+}
+
+// SetScanByID caches a scan by its ID with TTL
+func (r *RedisCacheRepository) SetScanByID(ctx context.Context, scanID string, record *domain.InBodyRecord, ttl time.Duration) error {
+	key := scanDetailKeyPrefix + scanID
+
+	// Serialize record to JSON
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("failed to marshal scan record: %w", err)
+	}
+
+	// Set with TTL
+	err = r.client.Set(ctx, key, data, ttl).Err()
+	if err != nil {
+		return fmt.Errorf("failed to cache scan: %w", err)
+	}
+
+	return nil
+}
+
+// GetScanByID retrieves a cached scan by its ID
+// Returns nil if not found or expired
+func (r *RedisCacheRepository) GetScanByID(ctx context.Context, scanID string) (*domain.InBodyRecord, error) {
+	key := scanDetailKeyPrefix + scanID
+
+	// Get from Redis
+	data, err := r.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, nil // Cache miss, return nil
+		}
+		return nil, fmt.Errorf("failed to get cached scan: %w", err)
+	}
+
+	// Deserialize JSON
+	var record domain.InBodyRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cached scan: %w", err)
+	}
+
+	return &record, nil
+}
+
+// InvalidateScan removes a cached scan by its ID
+func (r *RedisCacheRepository) InvalidateScan(ctx context.Context, scanID string) error {
+	key := scanDetailKeyPrefix + scanID
 	return r.client.Del(ctx, key).Err()
 }
 

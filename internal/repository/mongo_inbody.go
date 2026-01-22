@@ -414,3 +414,143 @@ func (r *MongoInBodyRepository) GetRecentScansByMembers(ctx context.Context, mem
 
 	return result, nil
 }
+
+// FindPaginatedByUserID retrieves scans with cursor-based pagination and date filtering
+// Returns lightweight ScanListItem records for efficient list rendering
+func (r *MongoInBodyRepository) FindPaginatedByUserID(ctx context.Context, userID string, query *domain.ScanListQuery) (*domain.ScanListResult, error) {
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+
+	// Build filter
+	filter := bson.M{"user_id": oid}
+
+	// Add date range filter if provided
+	if !query.From.IsZero() || !query.To.IsZero() {
+		dateFilter := bson.M{}
+		if !query.From.IsZero() {
+			dateFilter["$gte"] = query.From
+		}
+		if !query.To.IsZero() {
+			dateFilter["$lte"] = query.To
+		}
+		filter["test_date_time"] = dateFilter
+	}
+
+	// Handle cursor-based pagination
+	// Cursor format: "timestamp_id" (e.g., "2025-12-20T09:45:00Z_6950fee4b51bc914bed65c47")
+	if query.Cursor != "" {
+		// Parse cursor to get the timestamp and id for keyset pagination
+		var cursorTime time.Time
+		var cursorID primitive.ObjectID
+
+		// Split cursor by underscore to get timestamp and id
+		parts := splitCursor(query.Cursor)
+		if len(parts) == 2 {
+			cursorTime, _ = time.Parse(time.RFC3339, parts[0])
+			cursorID, _ = primitive.ObjectIDFromHex(parts[1])
+
+			// For descending sort, get records with test_date_time < cursor OR (test_date_time == cursor AND _id < cursor_id)
+			filter["$or"] = bson.A{
+				bson.M{"test_date_time": bson.M{"$lt": cursorTime}},
+				bson.M{
+					"test_date_time": cursorTime,
+					"_id":            bson.M{"$lt": cursorID},
+				},
+			}
+		}
+	}
+
+	// Set default limit
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50 // Cap at 50 to prevent abuse
+	}
+
+	// Get total count for the user (without cursor/pagination)
+	countFilter := bson.M{"user_id": oid}
+	if !query.From.IsZero() || !query.To.IsZero() {
+		dateFilter := bson.M{}
+		if !query.From.IsZero() {
+			dateFilter["$gte"] = query.From
+		}
+		if !query.To.IsZero() {
+			dateFilter["$lte"] = query.To
+		}
+		countFilter["test_date_time"] = dateFilter
+	}
+	total, err := r.collection.CountDocuments(ctx, countFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count documents: %w", err)
+	}
+
+	// Find with projection for lightweight response
+	opts := options.Find().
+		SetSort(bson.D{
+			{Key: "test_date_time", Value: -1},
+			{Key: "_id", Value: -1},
+		}).
+		SetLimit(int64(limit + 1)). // Fetch one extra to determine hasMore
+		SetProjection(bson.M{
+			"_id":            1,
+			"test_date_time": 1,
+			"weight":         1,
+			"pbf":            1,
+			"smm":            1,
+		})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find records: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var items []domain.ScanListItem
+	for cursor.Next(ctx) {
+		var item domain.ScanListItem
+		if err := cursor.Decode(&item); err != nil {
+			continue
+		}
+		items = append(items, item)
+	}
+
+	// Determine if there are more results
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit] // Remove the extra item
+	}
+
+	// Build next cursor from the last item
+	var nextCursor string
+	if hasMore && len(items) > 0 {
+		lastItem := items[len(items)-1]
+		nextCursor = fmt.Sprintf("%s_%s", lastItem.TestDateTime.Format(time.RFC3339), lastItem.ID)
+	}
+
+	return &domain.ScanListResult{
+		Items:      items,
+		Total:      total,
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	}, nil
+}
+
+// splitCursor splits a cursor string by underscore, handling timestamps that contain underscores
+func splitCursor(cursor string) []string {
+	// Find the last underscore to split timestamp_id
+	lastIdx := -1
+	for i := len(cursor) - 1; i >= 0; i-- {
+		if cursor[i] == '_' {
+			lastIdx = i
+			break
+		}
+	}
+	if lastIdx == -1 {
+		return nil
+	}
+	return []string{cursor[:lastIdx], cursor[lastIdx+1:]}
+}

@@ -95,6 +95,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, schedRepo, deps.Config.Server.MaxUploadSizeMB)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
+	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -113,7 +114,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	}
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:3000, http://192.168.1.10:3000, https://pt.cek-sport.com",
+		AllowOrigins:     "http://localhost:3000, http://localhost:3001, http://192.168.1.10:3000, https://pt.cek-sport.com",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Correlation-ID",
 		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		AllowCredentials: true, // Required for httpOnly cookie refresh tokens
@@ -144,10 +145,16 @@ func NewApp(deps AppDependencies) *fiber.App {
 	me.Use(middleware.TenantScope())
 	me.Use(middleware.AuthorizeRole(domain.RoleMember))
 
+	// Member dashboard and data endpoints
+	me.Get("/dashboard", memberHandler.GetMyDashboard)
+	me.Get("/pbs", memberHandler.GetMyPBs)
+	me.Get("/volume-history", memberHandler.GetMyVolumeHistory)
+	me.Get("/schedules", memberHandler.GetMySchedules)
+
 	meScans := me.Group("/scans")
 	meScans.Post("/digitize", scanHandler.DigitizeScan)
-	meScans.Get("/", scanHandler.ListScans)
-	meScans.Get("/:id", scanHandler.GetScan)
+	meScans.Get("/", memberHandler.GetMyScans)   // Optimized: paginated, lightweight list
+	meScans.Get("/:id", memberHandler.GetMyScan) // Optimized: cached detail
 	meScans.Patch("/:id", scanHandler.UpdateScan)
 	meScans.Delete("/:id", scanHandler.DeleteScan)
 
