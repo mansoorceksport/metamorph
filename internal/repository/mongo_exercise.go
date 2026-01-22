@@ -69,6 +69,41 @@ func (r *MongoExerciseRepository) GetByID(ctx context.Context, id string) (*doma
 	return &ex, nil
 }
 
+// GetByIDs retrieves multiple exercises by their IDs in a single query (batch lookup)
+func (r *MongoExerciseRepository) GetByIDs(ctx context.Context, ids []string) ([]*domain.Exercise, error) {
+	if len(ids) == 0 {
+		return []*domain.Exercise{}, nil
+	}
+
+	// Convert string IDs to ObjectIDs
+	oids := make([]primitive.ObjectID, 0, len(ids))
+	for _, id := range ids {
+		oid, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			continue // Skip invalid IDs
+		}
+		oids = append(oids, oid)
+	}
+
+	if len(oids) == 0 {
+		return []*domain.Exercise{}, nil
+	}
+
+	// Use $in operator for batch lookup
+	cursor, err := r.collection.Find(ctx, bson.M{"_id": bson.M{"$in": oids}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to find exercises: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var exercises []*domain.Exercise
+	if err := cursor.All(ctx, &exercises); err != nil {
+		return nil, fmt.Errorf("failed to decode exercises: %w", err)
+	}
+
+	return exercises, nil
+}
+
 func (r *MongoExerciseRepository) List(ctx context.Context, filter map[string]interface{}) ([]*domain.Exercise, error) {
 	// Simple find. Could expand filter logic.
 	query := bson.M{}

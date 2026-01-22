@@ -26,6 +26,7 @@ type Exercise struct {
 type ExerciseRepository interface {
 	Create(ctx context.Context, exercise *Exercise) error
 	GetByID(ctx context.Context, id string) (*Exercise, error)
+	GetByIDs(ctx context.Context, ids []string) ([]*Exercise, error) // Batch lookup for N+1 prevention
 	List(ctx context.Context, filter map[string]interface{}) ([]*Exercise, error)
 	Update(ctx context.Context, exercise *Exercise) error
 	Delete(ctx context.Context, id string) error

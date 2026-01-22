@@ -23,6 +23,7 @@ type MemberHandler struct {
 	scheduleRepo   domain.ScheduleRepository
 	scanRepo       domain.InBodyRepository
 	cacheRepo      domain.CacheRepository
+	exerciseRepo   domain.ExerciseRepository
 }
 
 // NewMemberHandler creates a new MemberHandler
@@ -33,6 +34,7 @@ func NewMemberHandler(
 	scheduleRepo domain.ScheduleRepository,
 	scanRepo domain.InBodyRepository,
 	cacheRepo domain.CacheRepository,
+	exerciseRepo domain.ExerciseRepository,
 ) *MemberHandler {
 	return &MemberHandler{
 		pbRepo:         pbRepo,
@@ -41,24 +43,78 @@ func NewMemberHandler(
 		scheduleRepo:   scheduleRepo,
 		scanRepo:       scanRepo,
 		cacheRepo:      cacheRepo,
+		exerciseRepo:   exerciseRepo,
 	}
 }
 
+// PBWithExerciseName is a PersonalBest enriched with the exercise name
+type PBWithExerciseName struct {
+	ID           string    `json:"id"`
+	ExerciseID   string    `json:"exercise_id"`
+	ExerciseName string    `json:"exercise_name"`
+	Weight       float64   `json:"weight"`
+	Reps         int       `json:"reps"`
+	AchievedAt   time.Time `json:"achieved_at"`
+}
+
 // GetMyPBs handles GET /v1/me/pbs
-// Returns all personal bests for the authenticated member
+// Returns personal bests for the authenticated member enriched with exercise names
+// Query params: limit (default 5)
 func (h *MemberHandler) GetMyPBs(c *fiber.Ctx) error {
 	memberID := c.Locals("userID").(string)
+	limit := c.QueryInt("limit", 5)
+
+	if limit > 20 {
+		limit = 20
+	}
 
 	pbs, err := h.pbRepo.GetByMember(c.UserContext(), memberID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if pbs == nil {
-		pbs = []*domain.PersonalBest{}
+	if pbs == nil || len(pbs) == 0 {
+		return c.JSON([]PBWithExerciseName{})
 	}
 
-	return c.JSON(pbs)
+	// Limit the results
+	if len(pbs) > limit {
+		pbs = pbs[:limit]
+	}
+
+	// Collect exercise IDs for batch lookup
+	exerciseIDs := make([]string, len(pbs))
+	for i, pb := range pbs {
+		exerciseIDs[i] = pb.ExerciseID
+	}
+
+	// Batch fetch exercises using $in query (prevents N+1)
+	exercises, err := h.exerciseRepo.GetByIDs(c.UserContext(), exerciseIDs)
+	if err != nil {
+		// Log error but continue with empty names
+		exercises = []*domain.Exercise{}
+	}
+
+	// Build lookup map
+	exerciseMap := make(map[string]string)
+	for _, ex := range exercises {
+		exerciseMap[ex.ID] = ex.Name
+	}
+
+	// Build enriched response
+	result := make([]PBWithExerciseName, len(pbs))
+	for i, pb := range pbs {
+		result[i] = PBWithExerciseName{
+			ID:           pb.ID,
+			ExerciseID:   pb.ExerciseID,
+			ExerciseName: exerciseMap[pb.ExerciseID],
+			Weight:       pb.Weight,
+			Reps:         pb.Reps,
+			AchievedAt:   pb.AchievedAt,
+		}
+	}
+
+	return c.JSON(result)
 }
 
 // GetMyVolumeHistory handles GET /v1/me/volume-history
@@ -114,6 +170,145 @@ func (h *MemberHandler) GetMySchedules(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"schedules": schedules})
+}
+
+// WorkoutHistoryItem represents a completed workout session for the member history view
+type WorkoutHistoryItem struct {
+	ID            string    `json:"id"`
+	Date          time.Time `json:"date"`
+	SessionGoal   string    `json:"session_goal"`
+	TotalVolume   float64   `json:"total_volume"`
+	TotalSets     int       `json:"total_sets"`
+	ExerciseCount int       `json:"exercise_count"`
+	HasNewPB      bool      `json:"has_new_pb"`
+}
+
+// WorkoutHistoryResponse represents the paginated response
+type WorkoutHistoryResponse struct {
+	Workouts   []WorkoutHistoryItem `json:"workouts"`
+	Total      int                  `json:"total"`
+	HasMore    bool                 `json:"has_more"`
+	NextCursor string               `json:"next_cursor,omitempty"`
+}
+
+// GetMyWorkoutHistory handles GET /v1/me/workouts/history
+// Returns completed workout sessions for the authenticated member (DESC order - latest first)
+// Query params: limit (default 10), cursor (for pagination)
+func (h *MemberHandler) GetMyWorkoutHistory(c *fiber.Ctx) error {
+	memberID := c.Locals("userID").(string)
+
+	// Parse query params
+	limit := c.QueryInt("limit", 10)
+	cursor := c.Query("cursor", "")
+
+	if limit > 50 {
+		limit = 50
+	}
+	if limit < 1 {
+		limit = 10
+	}
+
+	// Get schedules from past 365 days
+	to := time.Now()
+	from := to.AddDate(-1, 0, 0)
+
+	schedules, err := h.scheduleRepo.GetByMember(c.UserContext(), memberID, from, to)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+	}
+
+	// Filter to only completed sessions
+	var completedSchedules []*domain.Schedule
+	for _, s := range schedules {
+		if s.Status == domain.ScheduleStatusCompleted {
+			completedSchedules = append(completedSchedules, s)
+		}
+	}
+
+	// Sort by date descending (most recent first)
+	// Note: The repo may return sorted data, but let's ensure DESC order
+	for i := 0; i < len(completedSchedules)-1; i++ {
+		for j := i + 1; j < len(completedSchedules); j++ {
+			if completedSchedules[i].StartTime.Before(completedSchedules[j].StartTime) {
+				completedSchedules[i], completedSchedules[j] = completedSchedules[j], completedSchedules[i]
+			}
+		}
+	}
+
+	// Handle cursor-based pagination
+	startIdx := 0
+	if cursor != "" {
+		for i, s := range completedSchedules {
+			if s.ID == cursor {
+				startIdx = i + 1
+				break
+			}
+		}
+	}
+
+	// Apply pagination
+	endIdx := startIdx + limit + 1 // +1 to check if there's more
+	if endIdx > len(completedSchedules) {
+		endIdx = len(completedSchedules)
+	}
+
+	paginatedSchedules := completedSchedules[startIdx:endIdx]
+	hasMore := len(paginatedSchedules) > limit
+	if hasMore {
+		paginatedSchedules = paginatedSchedules[:limit]
+	}
+
+	// Fetch volume history once (not per schedule)
+	volumes, _ := h.workoutService.GetMemberVolumeHistory(c.UserContext(), memberID, 365)
+	// Map by ScheduleID, not date (date can have multiple workouts)
+	volumeMap := make(map[string]*domain.DailyVolume)
+	for _, v := range volumes {
+		volumeMap[v.ScheduleID] = v
+	}
+
+	// Build response
+	history := make([]WorkoutHistoryItem, len(paginatedSchedules))
+	for i, s := range paginatedSchedules {
+		var totalVolume float64
+		var totalSets int
+		var exerciseCount int
+
+		// Match by ScheduleID for accurate volume per workout
+		if v, ok := volumeMap[s.ID]; ok {
+			totalVolume = v.TotalVolume
+			totalSets = v.TotalSets
+			exerciseCount = v.ExerciseCount
+		}
+
+		history[i] = WorkoutHistoryItem{
+			ID:            s.ID,
+			Date:          s.StartTime,
+			SessionGoal:   s.SessionGoal,
+			TotalVolume:   totalVolume,
+			TotalSets:     totalSets,
+			ExerciseCount: exerciseCount,
+			HasNewPB:      false, // TODO: Track if any PB was set on this date
+		}
+	}
+
+	// Build next cursor
+	var nextCursor string
+	if hasMore && len(paginatedSchedules) > 0 {
+		nextCursor = paginatedSchedules[len(paginatedSchedules)-1].ID
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data": WorkoutHistoryResponse{
+			Workouts:   history,
+			Total:      len(completedSchedules),
+			HasMore:    hasMore,
+			NextCursor: nextCursor,
+		},
+	})
 }
 
 // GetMyDashboard handles GET /v1/me/dashboard
@@ -285,5 +480,140 @@ func (h *MemberHandler) GetMyScan(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"success": true,
 		"data":    scan,
+	})
+}
+
+// ExerciseWithSets represents an exercise with its sets for workout detail
+type ExerciseWithSets struct {
+	ExerciseID   string      `json:"exercise_id"`
+	ExerciseName string      `json:"exercise_name"`
+	Sets         []SetDetail `json:"sets"`
+	IsPR         bool        `json:"is_pr"` // Whether this exercise has a PB from this session
+}
+
+// SetDetail represents a single set in the workout detail
+type SetDetail struct {
+	SetIndex  int     `json:"set_index"`
+	Weight    float64 `json:"weight"`
+	Reps      int     `json:"reps"`
+	Completed bool    `json:"completed"`
+}
+
+// WorkoutDetailResponse represents the full workout detail
+type WorkoutDetailResponse struct {
+	ID            string             `json:"id"`
+	Date          time.Time          `json:"date"`
+	SessionGoal   string             `json:"session_goal"`
+	TotalVolume   float64            `json:"total_volume"`
+	TotalSets     int                `json:"total_sets"`
+	ExerciseCount int                `json:"exercise_count"`
+	Exercises     []ExerciseWithSets `json:"exercises"`
+}
+
+// GetMyWorkoutDetail handles GET /v1/me/workouts/:id
+// Returns detailed workout data including exercises, sets, and PR info
+func (h *MemberHandler) GetMyWorkoutDetail(c *fiber.Ctx) error {
+	memberID := c.Locals("userID").(string)
+	scheduleID := c.Params("id")
+
+	if scheduleID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "workout ID is required"})
+	}
+
+	// Get the schedule
+	schedule, err := h.scheduleRepo.GetByID(c.UserContext(), scheduleID)
+	if err != nil {
+		// Try by client_id
+		schedule, err = h.scheduleRepo.GetByClientID(c.UserContext(), scheduleID)
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workout not found"})
+		}
+	}
+
+	// Verify ownership
+	if schedule.MemberID != memberID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "you don't have access to this workout"})
+	}
+
+	// Get set logs for this schedule
+	setLogs, err := h.workoutService.GetSetsBySchedule(c.UserContext(), schedule.ID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Get member's PBs to mark exercises with PRs
+	pbs, _ := h.pbRepo.GetByMember(c.UserContext(), memberID)
+	pbScheduleMap := make(map[string]string) // exerciseID -> scheduleID where PB was achieved
+	for _, pb := range pbs {
+		pbScheduleMap[pb.ExerciseID] = pb.ScheduleID
+	}
+
+	// Group sets by exercise
+	exerciseMap := make(map[string]*ExerciseWithSets)
+	exerciseOrder := []string{}
+
+	for _, log := range setLogs {
+		if log.Weight <= 0 || log.Reps <= 0 {
+			continue // Skip empty sets
+		}
+
+		if _, exists := exerciseMap[log.ExerciseID]; !exists {
+			exerciseMap[log.ExerciseID] = &ExerciseWithSets{
+				ExerciseID: log.ExerciseID,
+				Sets:       []SetDetail{},
+				IsPR:       pbScheduleMap[log.ExerciseID] == schedule.ID,
+			}
+			exerciseOrder = append(exerciseOrder, log.ExerciseID)
+		}
+
+		exerciseMap[log.ExerciseID].Sets = append(exerciseMap[log.ExerciseID].Sets, SetDetail{
+			SetIndex:  log.SetIndex,
+			Weight:    log.Weight,
+			Reps:      log.Reps,
+			Completed: log.Completed,
+		})
+	}
+
+	// Batch fetch exercise names
+	if len(exerciseOrder) > 0 {
+		exercises, _ := h.exerciseRepo.GetByIDs(c.UserContext(), exerciseOrder)
+		nameMap := make(map[string]string)
+		for _, ex := range exercises {
+			nameMap[ex.ID] = ex.Name
+		}
+		for _, exID := range exerciseOrder {
+			if name, ok := nameMap[exID]; ok {
+				exerciseMap[exID].ExerciseName = name
+			}
+		}
+	}
+
+	// Build ordered exercise list
+	exerciseList := make([]ExerciseWithSets, 0, len(exerciseOrder))
+	for _, exID := range exerciseOrder {
+		exerciseList = append(exerciseList, *exerciseMap[exID])
+	}
+
+	// Calculate totals
+	var totalVolume float64
+	var totalSets int
+	for _, ex := range exerciseList {
+		for _, set := range ex.Sets {
+			totalVolume += set.Weight * float64(set.Reps)
+			totalSets++
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data": WorkoutDetailResponse{
+			ID:            schedule.ID,
+			Date:          schedule.StartTime,
+			SessionGoal:   schedule.SessionGoal,
+			TotalVolume:   totalVolume,
+			TotalSets:     totalSets,
+			ExerciseCount: len(exerciseList),
+			Exercises:     exerciseList,
+		},
 	})
 }

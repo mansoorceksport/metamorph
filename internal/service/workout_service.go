@@ -515,7 +515,9 @@ func (s *WorkoutService) AggregateSessionVolume(ctx context.Context, scheduleID 
 	exerciseIDs := make(map[string]bool)
 
 	for _, log := range setLogs {
-		if log.Completed && log.Weight > 0 && log.Reps > 0 {
+		// Count sets that have both weight and reps data
+		// Previously required log.Completed which missed sets where coach filled data but didn't explicitly check "completed"
+		if log.Weight > 0 && log.Reps > 0 {
 			volume := log.Weight * float64(log.Reps)
 			totalVolume += volume
 			totalWeight += log.Weight

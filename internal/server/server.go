@@ -95,7 +95,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, schedRepo, deps.Config.Server.MaxUploadSizeMB)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
-	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo)
+	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo, exerciseRepo)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -150,6 +150,11 @@ func NewApp(deps AppDependencies) *fiber.App {
 	me.Get("/pbs", memberHandler.GetMyPBs)
 	me.Get("/volume-history", memberHandler.GetMyVolumeHistory)
 	me.Get("/schedules", memberHandler.GetMySchedules)
+
+	// Workouts hub endpoints
+	meWorkouts := me.Group("/workouts")
+	meWorkouts.Get("/history", memberHandler.GetMyWorkoutHistory)
+	meWorkouts.Get("/:id", memberHandler.GetMyWorkoutDetail)
 
 	meScans := me.Group("/scans")
 	meScans.Post("/digitize", scanHandler.DigitizeScan)
