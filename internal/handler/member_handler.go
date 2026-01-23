@@ -24,6 +24,7 @@ type MemberHandler struct {
 	scanRepo       domain.InBodyRepository
 	cacheRepo      domain.CacheRepository
 	exerciseRepo   domain.ExerciseRepository
+	userRepo       domain.UserRepository
 }
 
 // NewMemberHandler creates a new MemberHandler
@@ -35,6 +36,7 @@ func NewMemberHandler(
 	scanRepo domain.InBodyRepository,
 	cacheRepo domain.CacheRepository,
 	exerciseRepo domain.ExerciseRepository,
+	userRepo domain.UserRepository,
 ) *MemberHandler {
 	return &MemberHandler{
 		pbRepo:         pbRepo,
@@ -44,6 +46,7 @@ func NewMemberHandler(
 		scanRepo:       scanRepo,
 		cacheRepo:      cacheRepo,
 		exerciseRepo:   exerciseRepo,
+		userRepo:       userRepo,
 	}
 }
 
@@ -391,6 +394,14 @@ func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 		topPBs = topPBs[:5]
 	}
 
+	// Get user's first_login_at for trial calculation
+	var firstLoginAt *time.Time
+	if h.userRepo != nil {
+		if user, err := h.userRepo.GetByID(c.UserContext(), memberID); err == nil && user != nil {
+			firstLoginAt = user.FirstLoginAt
+		}
+	}
+
 	response := fiber.Map{
 		"remaining_sessions": totalRemaining,
 		"total_sessions":     totalSessions,
@@ -398,6 +409,7 @@ func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 		"latest_scan":        latestScan,
 		"top_pbs":            topPBs,
 		"contracts":          contracts,
+		"first_login_at":     firstLoginAt,
 	}
 
 	// Cache the result (5 minutes TTL)

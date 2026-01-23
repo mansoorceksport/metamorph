@@ -95,7 +95,7 @@ func NewApp(deps AppDependencies) *fiber.App {
 	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, schedRepo, deps.Config.Server.MaxUploadSizeMB)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
-	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo, exerciseRepo)
+	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo, exerciseRepo, userRepo)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
