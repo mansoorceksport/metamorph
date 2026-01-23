@@ -7,16 +7,22 @@ import (
 
 // User represents a unified identity with multiple roles
 type User struct {
-	ID           string    `bson:"_id,omitempty" json:"id"`
-	FirebaseUID  string    `bson:"firebase_uid,omitempty" json:"firebase_uid"`
-	Email        string    `bson:"email" json:"email"`
-	Name         string    `bson:"name" json:"name"`
-	Roles        []string  `bson:"roles" json:"roles"` // ["coach", "member", "admin"]
-	TenantID     string    `bson:"tenant_id" json:"tenant_id"`
-	HomeBranchID string    `bson:"home_branch_id" json:"home_branch_id"` // For coaches
-	BranchAccess []string  `bson:"branch_access" json:"branch_access"`   // For members: list of accessible branch IDs
-	CreatedAt    time.Time `bson:"created_at" json:"created_at"`
-	UpdatedAt    time.Time `bson:"updated_at" json:"updated_at"`
+	ID           string   `bson:"_id,omitempty" json:"id"`
+	FirebaseUID  string   `bson:"firebase_uid,omitempty" json:"firebase_uid"`
+	Email        string   `bson:"email" json:"email"`
+	Name         string   `bson:"name" json:"name"`
+	Roles        []string `bson:"roles" json:"roles"` // ["coach", "member", "admin"]
+	TenantID     string   `bson:"tenant_id" json:"tenant_id"`
+	HomeBranchID string   `bson:"home_branch_id" json:"home_branch_id"` // For coaches
+	BranchAccess []string `bson:"branch_access" json:"branch_access"`   // For members: list of accessible branch IDs
+
+	// Activity Tracking
+	FirstLoginAt *time.Time `bson:"first_login_at,omitempty" json:"first_login_at,omitempty"`
+	LastLoginAt  *time.Time `bson:"last_login_at,omitempty" json:"last_login_at,omitempty"`
+	LoginCount   int        `bson:"login_count" json:"login_count"`
+
+	CreatedAt time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }
 
 // HasRole checks if user has a specific role
@@ -46,6 +52,10 @@ type UserRepository interface {
 	// Role management
 	AddRole(ctx context.Context, userID string, role string) error
 	RemoveRole(ctx context.Context, userID string, role string) error
+
+	// Activity tracking
+	// RecordLogin updates first_login_at (only if not set), last_login_at, and increments login_count
+	RecordLogin(ctx context.Context, userID string) error
 
 	// Query operations
 	GetAll(ctx context.Context) ([]*User, error)

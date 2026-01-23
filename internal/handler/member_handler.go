@@ -160,6 +160,14 @@ func (h *MemberHandler) GetMyVolumeHistory(c *fiber.Ctx) error {
 func (h *MemberHandler) GetMySchedules(c *fiber.Ctx) error {
 	memberID := c.Locals("userID").(string)
 
+	// Try cache first
+	if h.cacheRepo != nil {
+		var cached map[string]interface{}
+		if err := h.cacheRepo.GetMemberSchedules(c.UserContext(), memberID, &cached); err == nil {
+			return c.JSON(cached)
+		}
+	}
+
 	// Get schedules for the next 30 days by default
 	from := time.Now()
 	to := from.AddDate(0, 0, 30)
@@ -169,7 +177,14 @@ func (h *MemberHandler) GetMySchedules(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{"schedules": schedules})
+	response := fiber.Map{"schedules": schedules}
+
+	// Cache the result (10 minutes TTL)
+	if h.cacheRepo != nil {
+		_ = h.cacheRepo.SetMemberSchedules(c.UserContext(), memberID, response, 10*time.Minute)
+	}
+
+	return c.JSON(response)
 }
 
 // WorkoutHistoryItem represents a completed workout session for the member history view
@@ -316,6 +331,14 @@ func (h *MemberHandler) GetMyWorkoutHistory(c *fiber.Ctx) error {
 func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 	memberID := c.Locals("userID").(string)
 
+	// Try cache first
+	if h.cacheRepo != nil {
+		var cached map[string]interface{}
+		if err := h.cacheRepo.GetMemberDashboard(c.UserContext(), memberID, &cached); err == nil {
+			return c.JSON(cached)
+		}
+	}
+
 	// Get contracts to calculate remaining sessions
 	contracts, err := h.ptService.GetActiveContractsByMember(c.UserContext(), memberID)
 	if err != nil {
@@ -368,14 +391,21 @@ func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 		topPBs = topPBs[:5]
 	}
 
-	return c.JSON(fiber.Map{
+	response := fiber.Map{
 		"remaining_sessions": totalRemaining,
 		"total_sessions":     totalSessions,
 		"next_schedule":      nextSchedule,
 		"latest_scan":        latestScan,
 		"top_pbs":            topPBs,
 		"contracts":          contracts,
-	})
+	}
+
+	// Cache the result (5 minutes TTL)
+	if h.cacheRepo != nil {
+		_ = h.cacheRepo.SetMemberDashboard(c.UserContext(), memberID, response, 5*time.Minute)
+	}
+
+	return c.JSON(response)
 }
 
 // GetMyScans handles GET /v1/me/scans

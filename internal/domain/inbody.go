@@ -211,6 +211,38 @@ type CacheRepository interface {
 
 	// InvalidateScan removes a cached scan by its ID
 	InvalidateScan(ctx context.Context, scanID string) error
+
+	// Member Endpoint Caching Methods
+
+	// SetMemberDashboard caches member dashboard data
+	SetMemberDashboard(ctx context.Context, userID string, data interface{}, ttl time.Duration) error
+
+	// GetMemberDashboard retrieves cached member dashboard data
+	GetMemberDashboard(ctx context.Context, userID string, dest interface{}) error
+
+	// SetMemberSchedules caches member schedules data
+	SetMemberSchedules(ctx context.Context, userID string, data interface{}, ttl time.Duration) error
+
+	// GetMemberSchedules retrieves cached member schedules data
+	GetMemberSchedules(ctx context.Context, userID string, dest interface{}) error
+
+	// SetMemberPBs caches member personal bests data
+	SetMemberPBs(ctx context.Context, userID string, data interface{}, ttl time.Duration) error
+
+	// GetMemberPBs retrieves cached member personal bests data
+	GetMemberPBs(ctx context.Context, userID string, dest interface{}) error
+
+	// InvalidateMemberCache removes all cached data for a member
+	InvalidateMemberCache(ctx context.Context, userID string) error
+
+	// InvalidateMemberDashboard removes cached dashboard for a member
+	InvalidateMemberDashboard(ctx context.Context, userID string) error
+
+	// InvalidateMemberSchedules removes cached schedules for a member
+	InvalidateMemberSchedules(ctx context.Context, userID string) error
+
+	// InvalidateMemberPBs removes cached personal bests for a member
+	InvalidateMemberPBs(ctx context.Context, userID string) error
 }
 
 // DigitizerService defines the interface for AI-based metric extraction

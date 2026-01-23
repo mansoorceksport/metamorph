@@ -265,6 +265,45 @@ func (r *MongoUserRepository) RemoveRole(ctx context.Context, userID string, rol
 	return nil
 }
 
+// RecordLogin updates first_login_at (only if not set), last_login_at, and increments login_count
+func (r *MongoUserRepository) RecordLogin(ctx context.Context, userID string) error {
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return fmt.Errorf("invalid id: %w", err)
+	}
+
+	now := time.Now()
+
+	// Use $setOnInsert-like behavior with conditional update
+	// First, try to set first_login_at if it doesn't exist
+	update := bson.M{
+		"$set": bson.M{
+			"last_login_at": now,
+			"updated_at":    now,
+		},
+		"$inc": bson.M{"login_count": 1},
+	}
+
+	// First update: always update last_login_at and increment count
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": objID}, update)
+	if err != nil {
+		return fmt.Errorf("failed to record login: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+
+	// Second update: set first_login_at only if it doesn't exist
+	_, _ = r.collection.UpdateOne(ctx, bson.M{
+		"_id":            objID,
+		"first_login_at": bson.M{"$exists": false},
+	}, bson.M{
+		"$set": bson.M{"first_login_at": now},
+	})
+
+	return nil
+}
+
 func (r *MongoUserRepository) GetAll(ctx context.Context) ([]*domain.User, error) {
 	cursor, err := r.collection.Find(ctx, bson.M{})
 	if err != nil {
@@ -388,6 +427,21 @@ func mapBsonToUser(raw bson.M) *domain.User {
 				}
 			}
 		}
+	}
+
+	// Handle activity tracking fields
+	if firstLogin, ok := raw["first_login_at"].(primitive.DateTime); ok {
+		t := firstLogin.Time()
+		user.FirstLoginAt = &t
+	}
+	if lastLogin, ok := raw["last_login_at"].(primitive.DateTime); ok {
+		t := lastLogin.Time()
+		user.LastLoginAt = &t
+	}
+	if count, ok := raw["login_count"].(int32); ok {
+		user.LoginCount = int(count)
+	} else if count, ok := raw["login_count"].(int64); ok {
+		user.LoginCount = int(count)
 	}
 
 	return user

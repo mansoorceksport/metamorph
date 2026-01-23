@@ -17,6 +17,13 @@ const (
 	latestScanKeyPrefix = "user:latest_scan:"
 	trendRecapKeyPrefix = "trend_recap:"
 	scanDetailKeyPrefix = "scan:detail:" // Cache for individual scan details
+
+	// Member endpoint caching prefixes
+	memberDashboardKeyPrefix = "member:dashboard:"
+	memberSchedulesKeyPrefix = "member:schedules:"
+	memberWorkoutsKeyPrefix  = "member:workouts:"
+	memberPBsKeyPrefix       = "member:pbs:"
+	memberScansKeyPrefix     = "member:scans:"
 )
 
 // RedisCacheRepository implements domain.CacheRepository using Redis
@@ -277,4 +284,63 @@ func (r *RedisCacheRepository) DeleteByPattern(ctx context.Context, pattern stri
 
 	span.SetAttributes(attribute.Int("cache.matched_keys", len(keys)))
 	return r.client.Del(ctx, keys...).Err()
+}
+
+// =============================================================================
+// Member Endpoint Caching Methods
+// =============================================================================
+
+// SetMemberDashboard caches member dashboard data
+func (r *RedisCacheRepository) SetMemberDashboard(ctx context.Context, userID string, data interface{}, ttl time.Duration) error {
+	return r.Set(ctx, memberDashboardKeyPrefix+userID, data, ttl)
+}
+
+// GetMemberDashboard retrieves cached member dashboard data
+func (r *RedisCacheRepository) GetMemberDashboard(ctx context.Context, userID string, dest interface{}) error {
+	return r.Get(ctx, memberDashboardKeyPrefix+userID, dest)
+}
+
+// SetMemberSchedules caches member schedules data
+func (r *RedisCacheRepository) SetMemberSchedules(ctx context.Context, userID string, data interface{}, ttl time.Duration) error {
+	return r.Set(ctx, memberSchedulesKeyPrefix+userID, data, ttl)
+}
+
+// GetMemberSchedules retrieves cached member schedules data
+func (r *RedisCacheRepository) GetMemberSchedules(ctx context.Context, userID string, dest interface{}) error {
+	return r.Get(ctx, memberSchedulesKeyPrefix+userID, dest)
+}
+
+// SetMemberPBs caches member personal bests data
+func (r *RedisCacheRepository) SetMemberPBs(ctx context.Context, userID string, data interface{}, ttl time.Duration) error {
+	return r.Set(ctx, memberPBsKeyPrefix+userID, data, ttl)
+}
+
+// GetMemberPBs retrieves cached member personal bests data
+func (r *RedisCacheRepository) GetMemberPBs(ctx context.Context, userID string, dest interface{}) error {
+	return r.Get(ctx, memberPBsKeyPrefix+userID, dest)
+}
+
+// InvalidateMemberCache removes all cached data for a member
+func (r *RedisCacheRepository) InvalidateMemberCache(ctx context.Context, userID string) error {
+	keys := []string{
+		memberDashboardKeyPrefix + userID,
+		memberSchedulesKeyPrefix + userID,
+		memberPBsKeyPrefix + userID,
+	}
+	return r.Delete(ctx, keys...)
+}
+
+// InvalidateMemberDashboard removes cached dashboard for a member
+func (r *RedisCacheRepository) InvalidateMemberDashboard(ctx context.Context, userID string) error {
+	return r.Delete(ctx, memberDashboardKeyPrefix+userID)
+}
+
+// InvalidateMemberSchedules removes cached schedules for a member
+func (r *RedisCacheRepository) InvalidateMemberSchedules(ctx context.Context, userID string) error {
+	return r.Delete(ctx, memberSchedulesKeyPrefix+userID)
+}
+
+// InvalidateMemberPBs removes cached personal bests for a member
+func (r *RedisCacheRepository) InvalidateMemberPBs(ctx context.Context, userID string) error {
+	return r.Delete(ctx, memberPBsKeyPrefix+userID)
 }

@@ -98,6 +98,9 @@ func (s *AuthService) LoginOrRegister(ctx context.Context, req LoginOrRegisterRe
 
 	// Step 4: Login existing user
 	if err == nil && existingUser != nil {
+		// Record login activity (non-blocking, ignore errors)
+		_ = s.userRepo.RecordLogin(ctx, existingUser.ID)
+
 		// Generate JWT token using stored Roles and TenantID
 		token, err := s.GenerateMetamorphToken(existingUser)
 		if err != nil {
@@ -129,6 +132,9 @@ func (s *AuthService) LoginOrRegister(ctx context.Context, req LoginOrRegisterRe
 		if err := s.userRepo.Create(ctx, newUser); err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
 		}
+
+		// Record first login activity
+		_ = s.userRepo.RecordLogin(ctx, newUser.ID)
 
 		// Generate JWT token
 		token, err := s.GenerateMetamorphToken(newUser)
