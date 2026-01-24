@@ -44,14 +44,43 @@ func (h *WorkoutHandler) ListExercises(c *fiber.Ctx) error {
 
 func (h *WorkoutHandler) CreateExercise(c *fiber.Ctx) error {
 	// Admin Only (Middleware check outside)
-	var req domain.Exercise
+	var req struct {
+		ClientID     string `json:"client_id"` // Frontend ULID for dual-identity handshake
+		Name         string `json:"name"`
+		MuscleGroup  string `json:"muscle_group"`
+		Equipment    string `json:"equipment"`
+		VideoURL     string `json:"video_url"`
+		ReferenceURL string `json:"reference_url"`
+	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
-	if err := h.exerciseRepo.Create(c.UserContext(), &req); err != nil {
+
+	ex := &domain.Exercise{
+		ClientID:     req.ClientID,
+		Name:         req.Name,
+		MuscleGroup:  req.MuscleGroup,
+		Equipment:    req.Equipment,
+		VideoURL:     req.VideoURL,
+		ReferenceURL: req.ReferenceURL,
+	}
+
+	if err := h.exerciseRepo.Create(c.UserContext(), ex); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.Status(fiber.StatusCreated).JSON(req)
+
+	// Return exercise with client_id for dual-identity handshake
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"id":            ex.ID,
+		"client_id":     ex.ClientID,
+		"name":          ex.Name,
+		"muscle_group":  ex.MuscleGroup,
+		"equipment":     ex.Equipment,
+		"video_url":     ex.VideoURL,
+		"reference_url": ex.ReferenceURL,
+		"created_at":    ex.CreatedAt,
+		"updated_at":    ex.UpdatedAt,
+	})
 }
 
 func (h *WorkoutHandler) UpdateExercise(c *fiber.Ctx) error {

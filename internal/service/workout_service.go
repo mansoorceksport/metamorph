@@ -186,6 +186,37 @@ func (s *WorkoutService) resolveScheduleID(ctx context.Context, idOrClientID str
 	return schedule.ID, nil
 }
 
+// resolveExerciseID accepts either MongoDB ObjectID or ULID and resolves to Exercise's MongoDB ID
+// This handles the case where frontend sends ULID before exercise sync completes
+func (s *WorkoutService) resolveExerciseID(ctx context.Context, idOrClientID string) (string, error) {
+	// Check if it's a valid MongoDB ObjectID (24 hex chars, all lowercase hex)
+	isMongoID := len(idOrClientID) == 24
+	if isMongoID {
+		for _, c := range idOrClientID {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				isMongoID = false
+				break
+			}
+		}
+	}
+
+	if isMongoID {
+		// Try to get by MongoDB ObjectID first
+		exercise, err := s.exerciseRepo.GetByID(ctx, idOrClientID)
+		if err == nil {
+			return exercise.ID, nil
+		}
+		// If not found by ID, fall through to try client_id
+	}
+
+	// Try to get by client_id (ULID)
+	exercise, err := s.exerciseRepo.GetByClientID(ctx, idOrClientID)
+	if err != nil {
+		return "", fmt.Errorf("exercise not found for ID/ULID: %s", idOrClientID)
+	}
+	return exercise.ID, nil
+}
+
 // AddExerciseToSession adds an exercise dynamically (at end) - RETURNS the added exercise
 // clientID is the frontend ULID for dual-identity handshake
 // targetSets, targetReps, restSeconds, notes, order are passed from the frontend
@@ -211,7 +242,13 @@ func (s *WorkoutService) AddExerciseToSession(ctx context.Context, scheduleID st
 		order = int(count) + 1
 	}
 
-	ex, err := s.exerciseRepo.GetByID(ctx, exerciseID)
+	// Resolve exerciseID (handles both MongoDB ObjectID and frontend ULID)
+	resolvedExerciseID, err := s.resolveExerciseID(ctx, exerciseID)
+	if err != nil {
+		return nil, err
+	}
+
+	ex, err := s.exerciseRepo.GetByID(ctx, resolvedExerciseID)
 	if err != nil {
 		return nil, err
 	}

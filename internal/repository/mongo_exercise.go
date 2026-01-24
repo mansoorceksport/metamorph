@@ -19,15 +19,23 @@ type MongoExerciseRepository struct {
 func NewMongoExerciseRepository(db *mongo.Database) *MongoExerciseRepository {
 	coll := db.Collection("exercises")
 
-	// Create Index
+	// Create Indexes
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	mod := mongo.IndexModel{
+	// Unique index on name
+	nameMod := mongo.IndexModel{
 		Keys:    bson.M{"name": 1},
 		Options: options.Index().SetUnique(true),
 	}
-	coll.Indexes().CreateOne(ctx, mod)
+	coll.Indexes().CreateOne(ctx, nameMod)
+
+	// Sparse index on client_id for ULID lookups (not all exercises have client_id)
+	clientIDMod := mongo.IndexModel{
+		Keys:    bson.M{"client_id": 1},
+		Options: options.Index().SetSparse(true),
+	}
+	coll.Indexes().CreateOne(ctx, clientIDMod)
 
 	return &MongoExerciseRepository{
 		collection: coll,
@@ -60,6 +68,19 @@ func (r *MongoExerciseRepository) GetByID(ctx context.Context, id string) (*doma
 
 	var ex domain.Exercise
 	err = r.collection.FindOne(ctx, bson.M{"_id": oid}).Decode(&ex)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, domain.ErrExerciseNotFound
+		}
+		return nil, err
+	}
+	return &ex, nil
+}
+
+// GetByClientID retrieves an exercise by its frontend ULID (client_id)
+func (r *MongoExerciseRepository) GetByClientID(ctx context.Context, clientID string) (*domain.Exercise, error) {
+	var ex domain.Exercise
+	err := r.collection.FindOne(ctx, bson.M{"client_id": clientID}).Decode(&ex)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, domain.ErrExerciseNotFound
