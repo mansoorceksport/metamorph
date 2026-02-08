@@ -134,6 +134,17 @@ func (r *MongoUserRepository) Update(ctx context.Context, user *domain.User) err
 		update["$set"].(bson.M)["firebase_uid"] = user.FirebaseUID
 	}
 
+	// Include entitlement fields if set
+	if user.TrialEndDate != nil {
+		update["$set"].(bson.M)["trial_end_date"] = user.TrialEndDate
+	}
+	if user.SubscriptionEndDate != nil {
+		update["$set"].(bson.M)["subscription_end_date"] = user.SubscriptionEndDate
+	}
+	if user.FirstLoginAt != nil {
+		update["$set"].(bson.M)["first_login_at"] = user.FirstLoginAt
+	}
+
 	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": objID}, update)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
@@ -442,6 +453,16 @@ func mapBsonToUser(raw bson.M) *domain.User {
 		user.LoginCount = int(count)
 	} else if count, ok := raw["login_count"].(int64); ok {
 		user.LoginCount = int(count)
+	}
+
+	// Handle entitlement fields
+	if trialEnd, ok := raw["trial_end_date"].(primitive.DateTime); ok {
+		t := trialEnd.Time()
+		user.TrialEndDate = &t
+	}
+	if subEnd, ok := raw["subscription_end_date"].(primitive.DateTime); ok {
+		t := subEnd.Time()
+		user.SubscriptionEndDate = &t
 	}
 
 	return user

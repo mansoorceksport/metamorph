@@ -174,6 +174,7 @@ func (r *MongoScheduleRepository) Update(ctx context.Context, schedule *domain.S
 			"end_time":   schedule.EndTime,
 			"status":     schedule.Status,
 			"remarks":    schedule.Remarks,
+			"focus_area": schedule.FocusArea,
 			"updated_at": schedule.UpdatedAt,
 		},
 	}

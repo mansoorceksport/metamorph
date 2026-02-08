@@ -11,9 +11,10 @@ type DailyVolume struct {
 	ID            string    `json:"id" bson:"_id,omitempty"`
 	TenantID      string    `json:"tenant_id" bson:"tenant_id"`
 	MemberID      string    `json:"member_id" bson:"member_id"`
-	ScheduleID    string    `json:"schedule_id" bson:"schedule_id"`   // Reference to completed schedule
-	Date          time.Time `json:"date" bson:"date"`                 // Day of the workout
-	TotalVolume   float64   `json:"total_volume" bson:"total_volume"` // Weight * Reps summed
+	ScheduleID    string    `json:"schedule_id" bson:"schedule_id"`                   // Reference to completed schedule
+	FocusArea     string    `json:"focus_area,omitempty" bson:"focus_area,omitempty"` // Copied from Schedule for filtered charts
+	Date          time.Time `json:"date" bson:"date"`                                 // Day of the workout
+	TotalVolume   float64   `json:"total_volume" bson:"total_volume"`                 // Weight * Reps summed
 	TotalSets     int       `json:"total_sets" bson:"total_sets"`
 	TotalReps     int       `json:"total_reps" bson:"total_reps"`
 	TotalWeight   float64   `json:"total_weight" bson:"total_weight"` // Sum of all weights lifted
@@ -29,6 +30,8 @@ type DailyVolumeRepository interface {
 	GetByScheduleID(ctx context.Context, scheduleID string) (*DailyVolume, error)
 	// GetByMemberID retrieves all volume records for a member, sorted by date desc
 	GetByMemberID(ctx context.Context, memberID string, limit int) ([]*DailyVolume, error)
+	// GetByMemberIDAndFocusArea retrieves volume records for a member, optionally filtered by focus area
+	GetByMemberIDAndFocusArea(ctx context.Context, memberID string, limit int, focusArea string) ([]*DailyVolume, error)
 	// GetByMemberIDAndDateRange retrieves volume records for a member within a date range
 	GetByMemberIDAndDateRange(ctx context.Context, memberID string, from, to time.Time) ([]*DailyVolume, error)
 	// Delete removes a volume record by ID

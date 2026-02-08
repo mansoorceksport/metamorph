@@ -225,3 +225,74 @@ func (s *AuthService) GenerateMetamorphToken(user *domain.User) (string, error) 
 
 	return tokenString, nil
 }
+
+// GetAccessStatus returns the user's entitlement status for Pro features.
+// It handles lazy migration for legacy users and ghost user initialization.
+// Manual overrides (TrialEndDate set directly in DB) are respected and never overwritten.
+func (s *AuthService) GetAccessStatus(ctx context.Context, userID string) (*domain.AccessStatus, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user: %w", err)
+	}
+
+	now := time.Now().UTC()
+	needsUpdate := false
+
+	// Priority Check: Only initialize TrialEndDate if it's nil (respect manual overrides)
+	if user.TrialEndDate == nil {
+		if user.FirstLoginAt != nil {
+			// Legacy migration: user has FirstLoginAt but no TrialEndDate
+			trialEnd := user.FirstLoginAt.Add(14 * 24 * time.Hour)
+			user.TrialEndDate = &trialEnd
+		} else {
+			// Ghost user: no FirstLoginAt and no TrialEndDate - initialize both
+			user.FirstLoginAt = &now
+			trialEnd := now.Add(14 * 24 * time.Hour)
+			user.TrialEndDate = &trialEnd
+		}
+		needsUpdate = true
+	}
+
+	// Persist changes if needed (fire-and-forget for performance, but log errors)
+	if needsUpdate {
+		if updateErr := s.userRepo.Update(ctx, user); updateErr != nil {
+			// Log but don't fail the request
+			fmt.Printf("[GetAccessStatus] failed to update user %s: %v\n", userID, updateErr)
+		}
+	}
+
+	// Determine access status
+	status := &domain.AccessStatus{
+		IsPro:          false,
+		AccessType:     "none",
+		DaysRemaining:  0,
+		IsManualExtend: false,
+	}
+
+	// Check paid subscription first (higher priority)
+	if user.SubscriptionEndDate != nil && user.SubscriptionEndDate.After(now) {
+		status.IsPro = true
+		status.AccessType = "paid"
+		status.DaysRemaining = int(user.SubscriptionEndDate.Sub(now).Hours() / 24)
+		return status, nil
+	}
+
+	// Check trial
+	if user.TrialEndDate != nil && user.TrialEndDate.After(now) {
+		status.IsPro = true
+		status.AccessType = "trial"
+		status.DaysRemaining = int(user.TrialEndDate.Sub(now).Hours() / 24)
+
+		// Check if this is a manual extend (trial duration > 14 days from first login)
+		if user.FirstLoginAt != nil {
+			expectedTrialEnd := user.FirstLoginAt.Add(14 * 24 * time.Hour)
+			if user.TrialEndDate.After(expectedTrialEnd) {
+				status.IsManualExtend = true
+			}
+		}
+		return status, nil
+	}
+
+	// No active subscription or trial
+	return status, nil
+}

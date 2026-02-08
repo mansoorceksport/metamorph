@@ -575,6 +575,7 @@ func (s *WorkoutService) AggregateSessionVolume(ctx context.Context, scheduleID 
 		TenantID:      tenantID,
 		MemberID:      memberID,
 		ScheduleID:    scheduleID,
+		FocusArea:     schedule.FocusArea, // Propagate focus area for filtered charts
 		Date:          schedule.StartTime,
 		TotalVolume:   totalVolume,
 		TotalSets:     totalSets,
@@ -597,7 +598,7 @@ func (s *WorkoutService) AggregateSessionVolume(ctx context.Context, scheduleID 
 	return dailyVolume, nil
 }
 
-// GetMemberVolumeHistory retrieves volume history for charting
-func (s *WorkoutService) GetMemberVolumeHistory(ctx context.Context, memberID string, limit int) ([]*domain.DailyVolume, error) {
-	return s.volumeRepo.GetByMemberID(ctx, memberID, limit)
+// GetMemberVolumeHistory retrieves volume history for charting, optionally filtered by focus area
+func (s *WorkoutService) GetMemberVolumeHistory(ctx context.Context, memberID string, limit int, focusArea string) ([]*domain.DailyVolume, error) {
+	return s.volumeRepo.GetByMemberIDAndFocusArea(ctx, memberID, limit, focusArea)
 }

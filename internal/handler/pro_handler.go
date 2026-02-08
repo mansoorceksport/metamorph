@@ -935,11 +935,12 @@ func (h *ProHandler) GetMemberVolumeHistory(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Member ID required"})
 	}
 
-	// Get limit from query param (default 30 days)
+	// Get query params
 	limit := c.QueryInt("limit", 30)
+	focusArea := c.Query("focus") // Optional: filter by focus area (LEG_DAY, UPPER_BODY, etc.)
 
-	// Get volume history
-	volumes, err := h.workoutService.GetMemberVolumeHistory(c.Context(), memberID, limit)
+	// Get volume history (optionally filtered by focus area)
+	volumes, err := h.workoutService.GetMemberVolumeHistory(c.Context(), memberID, limit, focusArea)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

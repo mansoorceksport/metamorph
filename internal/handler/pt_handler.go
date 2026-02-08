@@ -245,6 +245,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 		StartTime   time.Time `json:"start_time"`   // Required
 		EndTime     time.Time `json:"end_time"`     // Optional, defaults to +1 hour
 		SessionGoal string    `json:"session_goal"` // e.g., "Leg Day - Hypertrophy Focus"
+		FocusArea   string    `json:"focus_area"`   // LEG_DAY, UPPER_BODY, etc.
 		Remarks     string    `json:"remarks"`      // Optional coach notes
 	}
 
@@ -267,6 +268,22 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 	if req.StartTime.IsZero() {
 		println("[DEBUG] CreateSchedule - StartTime is zero")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "start_time is required"})
+	}
+
+	// Validate focus_area if provided
+	if req.FocusArea != "" {
+		validFocus := false
+		for _, v := range domain.ValidFocusAreas {
+			if v == req.FocusArea {
+				validFocus = true
+				break
+			}
+		}
+		if !validFocus {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid focus_area. Must be one of: LEG_DAY, UPPER_BODY, BACK_DAY, CHEST_DAY, FULL_BODY, FUNCTIONAL, CORE, OTHER",
+			})
+		}
 	}
 
 	// Auto-resolve contract_id if not provided
@@ -301,6 +318,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 		StartTime:   req.StartTime,
 		EndTime:     endTime,
 		SessionGoal: req.SessionGoal,
+		FocusArea:   req.FocusArea,
 		Remarks:     req.Remarks,
 	}
 
@@ -332,6 +350,7 @@ func (h *PTHandler) CreateSchedule(c *fiber.Ctx) error {
 		"start_time":   schedule.StartTime,
 		"end_time":     schedule.EndTime,
 		"session_goal": schedule.SessionGoal,
+		"focus_area":   schedule.FocusArea,
 		"remarks":      schedule.Remarks,
 		"status":       schedule.Status,
 	})

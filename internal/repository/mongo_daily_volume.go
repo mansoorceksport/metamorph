@@ -87,6 +87,31 @@ func (r *MongoDailyVolumeRepository) GetByMemberIDAndDateRange(ctx context.Conte
 	return volumes, nil
 }
 
+// GetByMemberIDAndFocusArea retrieves volume records, optionally filtered by focus area
+func (r *MongoDailyVolumeRepository) GetByMemberIDAndFocusArea(ctx context.Context, memberID string, limit int, focusArea string) ([]*domain.DailyVolume, error) {
+	filter := bson.M{"member_id": memberID}
+	if focusArea != "" {
+		filter["focus_area"] = focusArea
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "date", Value: -1}})
+	if limit > 0 {
+		opts.SetLimit(int64(limit))
+	}
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var volumes []*domain.DailyVolume
+	if err = cursor.All(ctx, &volumes); err != nil {
+		return nil, err
+	}
+	return volumes, nil
+}
+
 func (r *MongoDailyVolumeRepository) Delete(ctx context.Context, id string) error {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {

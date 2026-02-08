@@ -25,6 +25,7 @@ type MemberHandler struct {
 	cacheRepo      domain.CacheRepository
 	exerciseRepo   domain.ExerciseRepository
 	userRepo       domain.UserRepository
+	authService    *service.AuthService
 }
 
 // NewMemberHandler creates a new MemberHandler
@@ -37,6 +38,7 @@ func NewMemberHandler(
 	cacheRepo domain.CacheRepository,
 	exerciseRepo domain.ExerciseRepository,
 	userRepo domain.UserRepository,
+	authService *service.AuthService,
 ) *MemberHandler {
 	return &MemberHandler{
 		pbRepo:         pbRepo,
@@ -47,6 +49,7 @@ func NewMemberHandler(
 		cacheRepo:      cacheRepo,
 		exerciseRepo:   exerciseRepo,
 		userRepo:       userRepo,
+		authService:    authService,
 	}
 }
 
@@ -128,7 +131,7 @@ func (h *MemberHandler) GetMyVolumeHistory(c *fiber.Ctx) error {
 	// Get limit from query param (default 30 days)
 	limit := c.QueryInt("limit", 30)
 
-	volumes, err := h.workoutService.GetMemberVolumeHistory(c.Context(), memberID, limit)
+	volumes, err := h.workoutService.GetMemberVolumeHistory(c.Context(), memberID, limit, "")
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -280,7 +283,7 @@ func (h *MemberHandler) GetMyWorkoutHistory(c *fiber.Ctx) error {
 	}
 
 	// Fetch volume history once (not per schedule)
-	volumes, _ := h.workoutService.GetMemberVolumeHistory(c.UserContext(), memberID, 365)
+	volumes, _ := h.workoutService.GetMemberVolumeHistory(c.UserContext(), memberID, 365, "")
 	// Map by ScheduleID, not date (date can have multiple workouts)
 	volumeMap := make(map[string]*domain.DailyVolume)
 	for _, v := range volumes {
@@ -334,10 +337,19 @@ func (h *MemberHandler) GetMyWorkoutHistory(c *fiber.Ctx) error {
 func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 	memberID := c.Locals("userID").(string)
 
-	// Try cache first
+	// ALWAYS call GetAccessStatus first for lazy migration (even if returning cached data)
+	// This ensures trial_end_date is populated in DB on first access
+	var accessStatus *domain.AccessStatus
+	if h.authService != nil {
+		accessStatus, _ = h.authService.GetAccessStatus(c.UserContext(), memberID)
+	}
+
+	// Try cache first (but inject fresh access_status)
 	if h.cacheRepo != nil {
 		var cached map[string]interface{}
 		if err := h.cacheRepo.GetMemberDashboard(c.UserContext(), memberID, &cached); err == nil {
+			// Inject fresh access_status into cached response
+			cached["access_status"] = accessStatus
 			return c.JSON(cached)
 		}
 	}
@@ -394,7 +406,7 @@ func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 		topPBs = topPBs[:5]
 	}
 
-	// Get user's first_login_at for trial calculation
+	// Get user's first_login_at for trial calculation (legacy - keeping for backward compat)
 	var firstLoginAt *time.Time
 	if h.userRepo != nil {
 		if user, err := h.userRepo.GetByID(c.UserContext(), memberID); err == nil && user != nil {
@@ -410,6 +422,7 @@ func (h *MemberHandler) GetMyDashboard(c *fiber.Ctx) error {
 		"top_pbs":            topPBs,
 		"contracts":          contracts,
 		"first_login_at":     firstLoginAt,
+		"access_status":      accessStatus,
 	}
 
 	// Cache the result (5 minutes TTL)

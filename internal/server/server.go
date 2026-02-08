@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -47,6 +48,11 @@ func NewApp(deps AppDependencies) *fiber.App {
 	dailyVolumeRepo := repository.NewMongoDailyVolumeRepository(deps.MongoDB)
 	refreshTokenRepo := repository.NewMongoRefreshTokenRepository(deps.MongoDB)
 
+	// Payment-related repositories
+	pkgPaymentRepo := repository.NewMongoPackageRepository(deps.MongoDB)
+	invoiceRepo := repository.NewMongoInvoiceRepository(deps.MongoDB)
+	subscriptionRepo := repository.NewMongoSubscriptionRepository(deps.MongoDB)
+
 	// S3 Init (Optional/Mockable in future, for now using config if available)
 	// For tests, we might want to mock this too, but for now we'll create it directly
 	// or skip if config is missing/test mode.
@@ -84,6 +90,9 @@ func NewApp(deps AppDependencies) *fiber.App {
 	ptService := service.NewPTService(pkgRepo, contractRepo, schedRepo, workoutSessionRepo, setLogRepo, pbRepo)
 	workoutService := service.NewWorkoutService(exerciseRepo, templateRepo, workoutSessionRepo, schedRepo, setLogRepo, pbRepo, dailyVolumeRepo)
 
+	// Initialize payment service
+	paymentProvider := service.NewPaymentProvider()
+
 	// Initialize dashboard service
 	dashboardService := service.NewDashboardService(contractRepo, schedRepo, mongoRepo, workoutSessionRepo, userRepo, pbRepo)
 
@@ -95,7 +104,13 @@ func NewApp(deps AppDependencies) *fiber.App {
 	proHandler := handler.NewProHandler(ptService, userRepo, analyticsService, dashboardService, pbRepo, scanService, mongoRepo, workoutService, schedRepo, deps.Config.Server.MaxUploadSizeMB)
 	ptHandler := handler.NewPTHandler(ptService, branchRepo, userRepo, workoutService)
 	workoutHandler := handler.NewWorkoutHandler(workoutService, exerciseRepo, templateRepo)
-	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo, exerciseRepo, userRepo)
+	memberHandler := handler.NewMemberHandler(pbRepo, workoutService, ptService, schedRepo, mongoRepo, redisRepo, exerciseRepo, userRepo, authService)
+	paymentHandler := handler.NewPaymentHandler(invoiceRepo, pkgPaymentRepo, paymentProvider)
+
+	// Webhook handler (for payment callbacks)
+	ipaymuAPIKey := os.Getenv("IPAYMU_API_KEY")
+	ipaymuVA := os.Getenv("IPAYMU_VA")
+	webhookHandler := handler.NewWebhookHandler(invoiceRepo, pkgPaymentRepo, subscriptionRepo, userRepo, ipaymuAPIKey, ipaymuVA)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -127,6 +142,10 @@ func NewApp(deps AppDependencies) *fiber.App {
 			"service": "hom-gym-digitizer",
 		})
 	})
+
+	// Public API endpoints (no auth required)
+	api := app.Group("/api")
+	api.Post("/payments/webhook/ipaymu", webhookHandler.IPAYMUWebhook)
 
 	// API v1 routes
 	v1 := app.Group("/v1")
@@ -165,6 +184,12 @@ func NewApp(deps AppDependencies) *fiber.App {
 
 	me.Post("/join-tenant", saasHandler.JoinTenant)
 	me.Get("/contracts", ptHandler.GetMyContracts)
+
+	// Payment endpoints
+	mePayments := me.Group("/payments")
+	mePayments.Get("/packages", paymentHandler.ListPackages)
+	mePayments.Post("/checkout", paymentHandler.Checkout)
+	mePayments.Get("/status/:id", paymentHandler.GetInvoiceStatus)
 
 	meAnalytics := me.Group("/analytics")
 	meAnalytics.Get("/history", analyticsHandler.GetHistory)

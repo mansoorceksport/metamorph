@@ -33,6 +33,25 @@ const (
 	ScheduleStatusCancelled           = "Cancelled"
 )
 
+// Focus Area Constants (code-facing, stored in DB)
+const (
+	FocusAreaLegDay     = "LEG_DAY"
+	FocusAreaUpperBody  = "UPPER_BODY"
+	FocusAreaBackDay    = "BACK_DAY"
+	FocusAreaChestDay   = "CHEST_DAY"
+	FocusAreaFullBody   = "FULL_BODY"
+	FocusAreaFunctional = "FUNCTIONAL"
+	FocusAreaCore       = "CORE"
+	FocusAreaOther      = "OTHER"
+)
+
+// ValidFocusAreas for API validation
+var ValidFocusAreas = []string{
+	FocusAreaLegDay, FocusAreaUpperBody, FocusAreaBackDay,
+	FocusAreaChestDay, FocusAreaFullBody, FocusAreaFunctional,
+	FocusAreaCore, FocusAreaOther,
+}
+
 // PTPackage represents a generic package Template offered by a Branch/Tenant
 // e.g., "10 Sessions Promo - Downtown Branch"
 type PTPackage struct {
@@ -76,6 +95,7 @@ type Schedule struct {
 	EndTime     time.Time  `json:"end_time" bson:"end_time"`
 	Status      string     `json:"status" bson:"status"`
 	SessionGoal string     `json:"session_goal,omitempty" bson:"session_goal,omitempty"` // e.g., "Leg Day - Hypertrophy Focus"
+	FocusArea   string     `json:"focus_area,omitempty" bson:"focus_area,omitempty"`     // LEG_DAY, UPPER_BODY, BACK_DAY, etc.
 	Remarks     string     `json:"remarks,omitempty" bson:"remarks,omitempty"`           // Coach notes
 	DeletedAt   *time.Time `json:"deleted_at,omitempty" bson:"deleted_at,omitempty"`     // Soft delete timestamp
 	CreatedAt   time.Time  `json:"created_at" bson:"created_at"`

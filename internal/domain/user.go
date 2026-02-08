@@ -23,6 +23,18 @@ type User struct {
 
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
+
+	// Entitlement
+	TrialEndDate        *time.Time `bson:"trial_end_date,omitempty" json:"trial_end_date,omitempty"`
+	SubscriptionEndDate *time.Time `bson:"subscription_end_date,omitempty" json:"subscription_end_date,omitempty"`
+}
+
+// AccessStatus represents the user's entitlement status for Pro features
+type AccessStatus struct {
+	IsPro          bool   `json:"is_pro"`
+	AccessType     string `json:"access_type"` // "trial", "paid", "none"
+	DaysRemaining  int    `json:"days_remaining"`
+	IsManualExtend bool   `json:"is_manual_extend"`
 }
 
 // HasRole checks if user has a specific role
