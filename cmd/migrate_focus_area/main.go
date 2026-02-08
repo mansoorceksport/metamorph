@@ -41,7 +41,7 @@ func inferFocusArea(sessionGoal string) string {
 func main() {
 	// Parse command line flags
 	mongoURI := flag.String("mongo", "", "MongoDB URI (required)")
-	dbName := flag.String("db", "metamorph", "Database name")
+	dbName := flag.String("db", "homgym", "Database name")
 	dryRun := flag.Bool("dry-run", true, "Preview changes without writing (default: true)")
 	flag.Parse()
 
