@@ -193,9 +193,8 @@ func (r *MongoPTContractRepository) GetActiveContractsWithMembers(ctx context.Co
 	pipeline := mongo.Pipeline{
 		// Match active contracts for this coach
 		{{Key: "$match", Value: bson.M{
-			"coach_id":           coachID,
-			"status":             domain.PackageStatusActive,
-			"remaining_sessions": bson.M{"$gt": 0},
+			"coach_id": coachID,
+			"status":   domain.PackageStatusActive,
 		}}},
 		// Lookup member info from users collection
 		{{Key: "$lookup", Value: bson.M{
